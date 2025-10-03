@@ -1,0 +1,111 @@
+:root{
+  --azul:#052c63; --azul-btn:#0a4abf; --azul-btn-hover:#083a95;
+  --bg:#f2f4f8; --card:#fff; --borde:#e5e7ef; --texto:#111; --muted:#6b7280;
+  --rojo:#c1121f; --ok:#12a150;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:system-ui, Segoe UI, Roboto, Arial, sans-serif;
+  background:var(--bg); color:var(--texto);
+  display:flex; flex-direction:column;
+}
+
+/* Topbar */
+.topbar{background:var(--azul);color:#fff}
+.topbar-inner{
+  max-width:980px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:18px 16px
+}
+.logo{height:46px;width:auto}
+.titulo{font-weight:800;font-size:22px;line-height:1.2}
+
+/* Layout y tarjetas */
+main{flex:1;display:flex}
+.wrap{max-width:980px;margin:36px auto 24px auto;padding:0 16px;width:100%}
+.card{
+  background:var(--card);border:1px solid var(--borde);border-radius:10px;
+  box-shadow:0 2px 8px rgba(0,0,0,.06);padding:18px;margin-bottom:16px
+}
+h2{margin:0 0 12px 0;font-size:22px}
+.section-title{margin:10px 0 6px}
+.panel{display:flex;align-items:center;gap:10px}
+.panel-title{margin:0; font-size:18px}
+.panel-actions{margin-left:auto; display:flex; gap:8px}
+
+.row{display:flex;gap:10px;flex-wrap:wrap}
+input, textarea, select{
+  flex:1;min-width:240px;padding:10px 12px;border-radius:8px;border:1px solid var(--borde);font-size:16px
+}
+button{
+  padding:10px 16px;border-radius:8px;border:none;background:var(--azul-btn);color:#fff;font-weight:600;cursor:pointer
+}
+button:hover{background:var(--azul-btn-hover)}
+.btn-plain{background:#eef3ff;color:#0a4abf;border:1px solid #cbd5ff}
+.muted{color:var(--muted);font-size:14px}
+.danger{color:var(--rojo);font-weight:700}
+.ok{color:var(--ok);font-weight:700}
+.badge{font-size:12px;background:#f7f7fb;border:1px solid var(--borde);border-radius:999px;padding:4px 10px;color:#444}
+.resultado{margin-top:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.list-item{border:1px solid var(--borde);border-radius:10px;padding:10px;margin-top:8px;background:#fafbff}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+
+@media (max-width:780px){ .grid-3{grid-template-columns:1fr} }
+@media (max-width:620px){
+  .grid{grid-template-columns:1fr}
+  .titulo{font-size:18px} .logo{height:40px}
+}
+
+/* Footer */
+.footerBar{background:var(--azul);height:40px;margin-top:24px}
+.footer{padding:14px 12px;text-align:center;font-size:14px;color:#3f3f3f}
+
+/* Modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50}
+.modal .box{
+  background:#fff;width:95%;max-width:380px;border-radius:12px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.2)
+}
+.modal-title{margin:0 0 10px 0;}
+.modal-body{display:flex; flex-direction:column; gap:8px}
+.modal-actions{display:flex; gap:8px; justify-content:flex-end; margin-top:6px}
+
+/* Toasts */
+.toasts{position:fixed;right:14px;top:14px;display:flex;flex-direction:column;gap:8px;z-index:60}
+.toast{
+  background:#fff;border:1px solid var(--borde);box-shadow:0 8px 20px rgba(0,0,0,.08);
+  padding:10px 12px;border-radius:10px;min-width:220px;transition:opacity .2s, transform .2s
+}
+.toast.ok{border-left:4px solid var(--ok)}
+.toast.err{border-left:4px solid var(--rojo)}
+
+/* Autocompletar (dropdown) */
+.sugs{position:relative}
+.sugs-list{
+  position:absolute;z-index:20;background:#fff;border:1px solid var(--borde);
+  border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.08);margin-top:4px;padding:6px;
+  max-height:240px;overflow:auto;width:100%
+}
+.sugs-item{padding:6px 8px;border-radius:8px;cursor:pointer}
+.sugs-item:hover{background:#f1f5ff}
+
+/* Chips compactos (para muchos docentes) */
+.chips{
+  display:flex;flex-wrap:wrap;gap:6px;
+  max-height:140px;overflow:auto;padding:4px;
+  border:1px dashed var(--borde);border-radius:8px;background:#fcfdff
+}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:2px 8px;font-size:12px;line-height:1.2;
+  border-radius:999px;background:#eef3ff;border:1px solid #cbd5ff;white-space:nowrap
+}
+.chip button{
+  padding:0 6px;font-size:11px;line-height:1.2;background:#e53e3e;color:#fff;border:none;border-radius:999px;cursor:pointer
+}
+.chip button:hover{opacity:.9}
+#resSel.chip{background:#f5f7ff;border-color:#dfe6ff;opacity:.95}
+
+/* Item activo al navegar con teclas */
+.sugs-item.active{ background:#e9f0ff; }
