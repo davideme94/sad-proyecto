@@ -306,55 +306,96 @@ window.addEventListener("DOMContentLoaded", () => {
     if (data.ok) { toast("Docente borrado ✅"); $("btnListDoc").click(); } else toast(data.error||"Error","err"); };
 
   // ------- Admin: Resoluciones -------
-  $("btnCrearRes")?.addEventListener("click", async () => {
-    const titulo = $("titulo")?.value.trim(), driveUrl = $("driveUrl")?.value.trim();
-    const expediente = $("expediente")?.value.trim() || null;
-    const numero = $("numero")?.value.trim() || null; // NUEVO
-    const nivel = $("nivel")?.value || null;
-    if (!titulo || !driveUrl) return toast("Completá título y URL", "err");
-    try {
+$("btnCrearRes")?.addEventListener("click", async () => {
+  const titulo    = $("titulo")?.value.trim();
+  const driveUrl  = $("driveUrl")?.value.trim();
+  const expediente= $("expediente")?.value.trim() || null;
+  const numero    = $("numero")?.value?.trim() || null; // NUEVO (si existe el input)
+  const nivel     = $("nivel")?.value || null;
+
+  if (!titulo || !driveUrl) return toast("Completá título y URL", "err");
+
+  // Si hay una resolución seleccionada por “Editar” => actualizar (PATCH)
+  const selectedId = $("resSel")?.dataset.id || "";
+
+  try {
+    if (selectedId) {
+      const data = await httpJson(api(`/api/admin/resoluciones/${selectedId}`), {
+        method: "PATCH",
+        headers: { "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
+        body: JSON.stringify({ titulo, driveUrl, expediente, numero, nivel })
+      });
+      $("statusRes").textContent = "Actualizada";
+      $("statusRes").className = "ok";
+      toast("Resolución actualizada ✅");
+
+      // limpiar selección y volver el botón a “Crear”
+      const chip = $("resSel");
+      if (chip) { chip.style.display = "none"; chip.dataset.id = ""; chip.textContent = ""; }
+      const btn = $("btnCrearRes"); if (btn) btn.textContent = "Crear";
+    } else {
       const data = await httpJson(api(`/api/admin/resoluciones`), {
         method:"POST",
         headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
         body: JSON.stringify({ titulo, driveUrl, expediente, numero, nivel })
       });
       const s = $("statusRes");
-      if (data.alreadyExisted) { s.textContent="Ya creada"; s.className="ok"; toast("Resolución ya existía ✅"); return; }
-      if (data.created || data._id) { s.textContent="Creada"; s.className="ok"; toast("Resolución creada ✅"); return; }
-      s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err");
-    } catch (e) { toast(e.message || "Error", "err"); }
-  });
+      if (data.alreadyExisted) { s.textContent="Ya creada"; s.className="ok"; toast("Resolución ya existía ✅"); }
+      else if (data.created || data._id) { s.textContent="Creada"; s.className="ok"; toast("Resolución creada ✅"); }
+      else { s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err"); }
+    }
+  } catch (e) {
+    toast(e.message || "Error", "err");
+  }
+});
 
-  $("btnListRes")?.addEventListener("click", async () => {
-    const q = prompt("Buscar (opcional: título):", "") || "";
-    const list = await httpJson(api(`/api/admin/resoluciones?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
-    const c = $("adminLista"); if (!c) return;
-    c.innerHTML = `<h4>Resoluciones (${list.length})</h4>` + list.map(r => `
-      <div class="list-item">
-        <div><b>${r.titulo}</b></div>
-        <div class="muted">${[r.expediente, r.numero, r.nivel, r.driveUrl].filter(Boolean).join(' • ')}</div>
-        <div class="actions" style="margin-top:6px">
-          <button class="btn-plain"
-            onclick="prefillRes('${r._id}',
-                               '${String(r.titulo).replace(/'/g,"&#39;")}',
-                               '${String(r.driveUrl).replace(/'/g,"&#39;")}',
-                               '${r.expediente?String(r.expediente).replace(/'/g,"&#39;"):""}',
-                               '${r.numero?String(r.numero).replace(/'/g,"&#39;"):""}',
-                               '${r.nivel??""}')">Editar</button>
-          <button class="btn-plain" onclick="verVinculos('${r._id}')">Vínculos</button>
-          <button style="background:#e53e3e" onclick="borrarRes('${r._id}')">Borrar</button>
-        </div>
+$("btnListRes")?.addEventListener("click", async () => {
+  const q = prompt("Buscar (opcional: título):", "") || "";
+  const list = await httpJson(api(`/api/admin/resoluciones?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
+  const c = $("adminLista"); if (!c) return;
+  c.innerHTML = `<h4>Resoluciones (${list.length})</h4>` + list.map(r => `
+    <div class="list-item">
+      <div><b>${r.titulo}</b></div>
+      <div class="muted">${[r.expediente, r.numero, r.nivel, r.driveUrl].filter(Boolean).join(' • ')}</div>
+      <div class="actions" style="margin-top:6px">
+        <button class="btn-plain"
+          onclick="prefillRes('${r._id}',
+                              '${String(r.titulo).replace(/'/g,"&#39;")}',
+                              '${String(r.driveUrl).replace(/'/g,"&#39;")}',
+                              '${r.expediente?String(r.expediente).replace(/'/g,"&#39;"):""}',
+                              '${r.numero?String(r.numero).replace(/'/g,"&#39;"):""}',
+                              '${r.nivel??""}')">Editar</button>
+        <button class="btn-plain" onclick="verVinculos('${r._id}')">Vínculos</button>
+        <button style="background:#e53e3e" onclick="borrarRes('${r._id}')">Borrar</button>
       </div>
-    `).join("");
-  });
-  window.prefillRes = (id,titulo,driveUrl,expediente,numero,nivel)=>{
-    const t=$("titulo"), d=$("driveUrl"), e=$("expediente"), n=$("nivel"), b=$("resBuscar"), num=$("numero");
-    if(t)t.value=titulo; if(d)d.value=driveUrl; if(e)e.value=expediente||""; if(num)num.value=numero||""; if(n)n.value=nivel||"";
-    if(b)b.value=titulo; setResSeleccion(id,titulo); toast("Formulario cargado para editar/vincular");
-  };
-  window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus vínculos?"))return;
-    const data = await httpJson(api(`/api/admin/resoluciones/${id}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
-    if (data.ok) { toast("Resolución borrada ✅"); $("btnListRes").click(); } else toast(data.error||"Error","err"); };
+    </div>
+  `).join("");
+});
+
+// cuando cargás para editar, marcamos selección y cambiamos texto del botón a “Actualizar”
+window.prefillRes = (id,titulo,driveUrl,expediente,numero,nivel)=>{
+  const t=$("titulo"), d=$("driveUrl"), e=$("expediente"), n=$("nivel"), b=$("resBuscar"), num=$("numero");
+  if(t)t.value=titulo; if(d)d.value=driveUrl; if(e)e.value=expediente||""; if(num)num.value=numero||""; if(n)n.value=nivel||"";
+  if(b)b.value=titulo;
+
+  const resSel = $("resSel");
+  if (resSel) {
+    resSel.textContent = titulo;
+    resSel.style.display = "";
+    resSel.dataset.id = id;
+    const x = document.createElement("button"); x.textContent = "✕";
+    x.onclick = ()=>{ resSel.style.display="none"; resSel.dataset.id=""; if(b) b.value=""; const btn=$("btnCrearRes"); if(btn) btn.textContent="Crear"; };
+    resSel.appendChild(x);
+  }
+  const btn = $("btnCrearRes"); if (btn) btn.textContent = "Actualizar";
+  toast("Formulario cargado para editar/vincular");
+};
+
+window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus vínculos?"))return;
+  const data = await httpJson(api(`/api/admin/resoluciones/${id}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
+  if (data.ok) { toast("Resolución borrada ✅"); $("btnListRes").click(); } else toast(data.error||"Error","err");
+};
+
 
   // ===============================
   // Autocompletar: Resolución
