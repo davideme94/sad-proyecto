@@ -84,23 +84,23 @@ let BULK_ROWS = []; // { nombre, dni, ok, reason }
 
 function normName(s) {
   if (!s) return "";
-  // colapsar espacios, quitar tabulaciones, trim
+  // colapsar espacios, quitar tabulaciones, trim (sirve para “...  	...”)
   return s.replace(/\s+/g, " ").replace(/\t/g, " ").trim();
 }
 
 function normDni(s) {
   if (!s) return "";
-  const digits = String(s).replace(/\D+/g, ""); // solo dígitos
-  return digits; // validación afuera (7-9 dígitos)
+  const digits = String(s).replace(/\D+/g, ""); // solo dígitos (sin puntos/espacios)
+  return digits; // validación 7-9 dígitos más abajo
 }
 
 function parseBulkInputs() {
-  const rawNames = $("bulkNombres")?.value || "";
-  const rawDnis = $("bulkDnis")?.value || "";
+  // <<< IDs adaptados a tu HTML >>>
+  const rawNames = $("massNames")?.value || "";
+  const rawDnis  = $("massDnis")?.value  || "";
 
-  // separar por líneas, también admite pegar columnas: tratamos \r\n y \n
   const names = rawNames.split(/\r?\n/).map(normName).filter(x => x.length > 0);
-  const dnis = rawDnis.split(/\r?\n/).map(normDni).filter(x => x.length > 0);
+  const dnis  = rawDnis .split(/\r?\n/).map(normDni) .filter(x => x.length > 0);
 
   const max = Math.max(names.length, dnis.length);
   const rows = [];
@@ -119,13 +119,25 @@ function parseBulkInputs() {
 }
 
 function renderBulkTable() {
-  const tbody = $("bulkTbody"); if (!tbody) return;
-  const count = $("bulkCount");
+  // <<< Render en tu DIV #massPreview con conteo y tabla >>>
+  const host   = $("massPreview"); if (!host) return;
+  const status = $("massStatus");
+  const saveBt = $("btnMassSave");
 
-  tbody.innerHTML = BULK_ROWS.map((r, idx) => `
-    <tr class="${r.ok ? "" : "danger-row"}">
+  const valid = BULK_ROWS.filter(r => r.ok).length;
+  const invalid = BULK_ROWS.length - valid;
+
+  if (!BULK_ROWS.length) {
+    host.innerHTML = "";
+    if (status) status.textContent = "";
+    if (saveBt) saveBt.disabled = true;
+    return;
+  }
+
+  const rowsHtml = BULK_ROWS.map((r, idx) => `
+    <tr style="${r.ok ? "" : "background:#fff1f1"}">
       <td style="text-align:center">${idx + 1}</td>
-      <td>${r.nombre || "<i>—</i>"}</td>
+      <td>${r.nombre ? r.nombre.replace(/</g,"&lt;") : "<i>—</i>"}</td>
       <td><code>${r.dni || "—"}</code></td>
       <td>${r.ok ? "<span class='ok'>OK</span>" : `<span class='danger'>${r.reason}</span>`}</td>
       <td style="text-align:right">
@@ -134,9 +146,30 @@ function renderBulkTable() {
     </tr>
   `).join("");
 
-  const valid = BULK_ROWS.filter(r => r.ok).length;
-  const invalid = BULK_ROWS.length - valid;
-  if (count) count.textContent = `Filas: ${BULK_ROWS.length} • Válidas: ${valid} • Inválidas: ${invalid}`;
+  host.innerHTML = `
+    <div class="list-item" style="overflow:auto">
+      <div class="muted" id="bulkCount" style="margin-bottom:6px">
+        Filas: ${BULK_ROWS.length} • Válidas: ${valid} • Inválidas: ${invalid}
+      </div>
+      <table style="width:100%; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left; padding:6px 4px;">#</th>
+            <th style="text-align:left; padding:6px 4px;">Nombre</th>
+            <th style="text-align:left; padding:6px 4px;">DNI</th>
+            <th style="text-align:left; padding:6px 4px;">Estado</th>
+            <th style="text-align:right; padding:6px 4px;">Acción</th>
+          </tr>
+        </thead>
+        <tbody id="bulkTbody">
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  if (status) status.textContent = "";
+  if (saveBt) saveBt.disabled = valid === 0;
 }
 
 window.rmBulk = (idx) => {
@@ -148,27 +181,24 @@ async function bulkGuardar() {
   const valid = BULK_ROWS.filter(r => r.ok).map(r => ({ dni: r.dni, nombre: r.nombre }));
   if (!valid.length) return toast("No hay filas válidas para guardar", "err");
 
-  // Intento 1: endpoint bulk
   try {
     const res = await httpJson(api(`/api/admin/docentes/bulk`), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
       body: JSON.stringify({ items: valid })
     }, 60000);
-    // esperamos algo como { ok:true, upserted: n, updated: m, errors: [...] }
     if (res?.ok) {
-      toast(`Guardados: ${res.upserted ?? valid.length} (algunos pueden haberse actualizado) ✅`);
+      toast(`Guardados: ${res.upserted ?? valid.length} ✅`);
       BULK_ROWS = [];
       renderBulkTable();
+      const n = $("massNames"), d = $("massDnis"), s = $("massStatus");
+      if (n) n.value = ""; if (d) d.value = ""; if (s) s.textContent = "";
+      const saveBt = $("btnMassSave"); if (saveBt) saveBt.disabled = true;
       return;
     }
-    // si no devuelve ok, continúo al fallback
     throw new Error(res?.error || "bulk no disponible");
-  } catch (e) {
-    // Fallback: guardar uno por uno
+  } catch {
+    // Fallback 1x1 (misma lógica que ya tenías)
     let okCount = 0, errCount = 0;
     for (const it of valid) {
       try {
@@ -185,6 +215,9 @@ async function bulkGuardar() {
     toast(`Bulk (fallback): OK ${okCount} • Errores ${errCount}`, errCount ? "err" : "ok");
     BULK_ROWS = [];
     renderBulkTable();
+    const n = $("massNames"), d = $("massDnis"), s = $("massStatus");
+    if (n) n.value = ""; if (d) d.value = ""; if (s) s.textContent = "";
+    const saveBt = $("btnMassSave"); if (saveBt) saveBt.disabled = true;
   }
 }
 
@@ -250,19 +283,11 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // ------- Admin: Docentes (individual) -------
   $("btnGuardarDoc")?.addEventListener("click", async () => {
-    // Sanitizar antes de validar
     const dniInput = $("docDni")?.value ?? "";
     const nombreInput = $("docNombre")?.value ?? "";
-
-    // DNI solo dígitos (sin puntos, espacios, guiones, etc.)
-    const dni = dniInput.replace(/\D+/g, "");
-    // Nombre con espacios colapsados y sin bordes
+    const dni = dniInput.replace(/\D+/g, ""); // solo dígitos
     const nombre = nombreInput.replace(/\s+/g, " ").trim();
-
-    if (!/^[0-9]{7,9}$/.test(dni) || !nombre) {
-      return toast("Datos inválidos (DNI 7–9 dígitos y nombre no vacío)", "err");
-    }
-
+    if (!/^[0-9]{7,9}$/.test(dni) || !nombre) { return toast("Datos inválidos (DNI 7–9 dígitos y nombre no vacío)", "err"); }
     try {
       const data = await httpJson(api(`/api/admin/docentes`), {
         method:"POST",
@@ -275,9 +300,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (data.created)      { s.textContent="Creado";     s.className="ok"; toast("Docente creado ✅"); return; }
       if (data._id)          { s.textContent="Guardado";   s.className="ok"; toast("Docente guardado ✅"); return; }
       s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err");
-    } catch (e) {
-      toast(e.message || "Error", "err");
-    }
+    } catch (e) { toast(e.message || "Error", "err"); }
   });
 
   $("btnListDoc")?.addEventListener("click", async () => {
@@ -294,7 +317,6 @@ window.addEventListener("DOMContentLoaded", () => {
       </div>
     `).join("");
   });
-
   window.editarDoc = (dni,nombre)=>{ const dn = $("docDni"), nm = $("docNombre"); if(dn) dn.value=dni; if(nm) nm.value=nombre; };
   window.borrarDoc = async (dni)=>{ if(!confirm(`Borrar docente DNI ${dni}?`))return;
     const data = await httpJson(api(`/api/admin/docentes/${dni}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
@@ -514,9 +536,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // ------- Carga masiva: eventos -------
-  // Soportar ambos IDs: btnBulkParse (tu JS original) y btnBulkPreview (HTML previo)
-  const bulkPreviewBtn = $("btnBulkParse") || $("btnBulkPreview");
-  bulkPreviewBtn?.addEventListener("click", () => {
+  // IDs de tu HTML: btnMassPreview / btnMassSave
+  $("btnMassPreview")?.addEventListener("click", () => {
     BULK_ROWS = parseBulkInputs();
     renderBulkTable();
     const valid = BULK_ROWS.filter(r => r.ok).length;
@@ -526,7 +547,7 @@ window.addEventListener("DOMContentLoaded", () => {
     else toast(`Detectadas ${BULK_ROWS.length} filas válidas ✅`);
   });
 
-  $("btnBulkGuardar")?.addEventListener("click", async () => {
+  $("btnMassSave")?.addEventListener("click", async () => {
     if (!TOKEN) return toast("Debés iniciar sesión para guardar", "err");
     await bulkGuardar();
   });
