@@ -53,7 +53,15 @@ const docenteSchema = new mongoose.Schema(
 );
 const NIVELES = ["INICIAL","PRIMARIA", "SECUNDARIA", "TECNICA", "EDUC. FISICA", "ARTISTICA", "PSICOLOGIA", "ADULTOS Y CENS"];
 const resolucionSchema = new mongoose.Schema(
-  { docenteDni: { type: String, index: true, match: /^[0-9]{7,9}$/ }, titulo: { type: String, required: true }, driveUrl: { type: String, required: true }, expediente: String, nivel: { type: String, enum: NIVELES, default: null }, creadoPor: String },
+  {
+    docenteDni: { type: String, index: true, match: /^[0-9]{7,9}$/ },
+    titulo: { type: String, required: true },
+    driveUrl: { type: String, required: true },
+    expediente: String,
+    numero: String, // <-- NUEVO
+    nivel: { type: String, enum: NIVELES, default: null },
+    creadoPor: String
+  },
   { timestamps: true }
 );
 const vinculoSchema = new mongoose.Schema(
@@ -182,6 +190,37 @@ app.delete("/api/admin/docentes/:dni", auth, async (req, res) => {
   res.json({ ok: true, deleted: true });
 });
 
+// ---- Docentes BULK (nuevo)
+app.post("/api/admin/docentes/bulk", auth, async (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  const clean = [];
+  const seen = new Set();
+  for (const it of items) {
+    const dni = String(it?.dni || "").replace(/\D+/g, "");
+    const nombre = String(it?.nombre || "").replace(/\s+/g, " ").trim();
+    if (!/^[0-9]{7,9}$/.test(dni) || !nombre) continue;
+    if (seen.has(dni)) continue;
+    seen.add(dni);
+    clean.push({ dni, nombre });
+  }
+  if (!clean.length) return res.status(400).json({ error: "Sin ítems válidos" });
+
+  const ops = clean.map((it) => ({
+    updateOne: {
+      filter: { dni: it.dni },
+      update: { $set: { nombre: it.nombre } },
+      upsert: true
+    }
+  }));
+  const result = await Docente.bulkWrite(ops, { ordered: false });
+  return res.json({
+    ok: true,
+    upserted: result.upsertedCount || 0,
+    modified: result.modifiedCount || 0,
+    matched: result.matchedCount || 0
+  });
+});
+
 // ---- Resoluciones CRUD
 app.get("/api/admin/resoluciones", auth, async (req, res) => {
   const q = (req.query.q || "").toString().trim();
@@ -190,7 +229,7 @@ app.get("/api/admin/resoluciones", auth, async (req, res) => {
   res.json(list);
 });
 app.post("/api/admin/resoluciones", auth, async (req, res) => {
-  const { docenteDni, titulo, driveUrl, expediente, nivel } = req.body || {};
+  const { docenteDni, titulo, driveUrl, expediente, numero, nivel } = req.body || {};
   if (!titulo || !driveUrl) return res.status(400).json({ error: "Datos inválidos" });
   if (docenteDni) {
     const exists = await Docente.findOne({ dni: docenteDni });
@@ -199,11 +238,15 @@ app.post("/api/admin/resoluciones", auth, async (req, res) => {
   if (nivel && !NIVELES.includes(nivel)) return res.status(400).json({ error: "Nivel inválido" });
   const dup = await Resolucion.findOne({ titulo, driveUrl });
   if (dup) return res.json({ ...dup.toObject(), alreadyExisted: true });
-  const r = await Resolucion.create({ docenteDni: docenteDni || null, titulo, driveUrl, expediente, nivel, creadoPor: req.user.email });
+  const r = await Resolucion.create({
+    docenteDni: docenteDni || null,
+    titulo, driveUrl, expediente, numero, nivel,
+    creadoPor: req.user.email
+  });
   res.status(201).json({ ...r.toObject(), created: true });
 });
 app.patch("/api/admin/resoluciones/:id", auth, async (req, res) => {
-  const updates = (({ titulo, driveUrl, expediente, nivel }) => ({ titulo, driveUrl, expediente, nivel }))(req.body || {});
+  const updates = (({ titulo, driveUrl, expediente, numero, nivel }) => ({ titulo, driveUrl, expediente, numero, nivel }))(req.body || {});
   if (updates.nivel && !NIVELES.includes(updates.nivel)) return res.status(400).json({ error: "Nivel inválido" });
   Object.keys(updates).forEach((k) => updates[k] === undefined && delete updates[k]);
   const r = await Resolucion.findByIdAndUpdate(req.params.id, updates, { new: true });

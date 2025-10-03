@@ -84,18 +84,15 @@ let BULK_ROWS = []; // { nombre, dni, ok, reason }
 
 function normName(s) {
   if (!s) return "";
-  // colapsar espacios, quitar tabulaciones, trim (sirve para “...  	...”)
+  // colapsar espacios, quitar tabulaciones, trim (sirve para pegados con tabs)
   return s.replace(/\s+/g, " ").replace(/\t/g, " ").trim();
 }
-
 function normDni(s) {
   if (!s) return "";
-  const digits = String(s).replace(/\D+/g, ""); // solo dígitos (sin puntos/espacios)
-  return digits; // validación 7-9 dígitos más abajo
+  const digits = String(s).replace(/\D+/g, ""); // solo dígitos
+  return digits;
 }
-
 function parseBulkInputs() {
-  // <<< IDs adaptados a tu HTML >>>
   const rawNames = $("massNames")?.value || "";
   const rawDnis  = $("massDnis")?.value  || "";
 
@@ -104,22 +101,17 @@ function parseBulkInputs() {
 
   const max = Math.max(names.length, dnis.length);
   const rows = [];
-
   for (let i = 0; i < max; i++) {
     const nombre = normName(names[i] || "");
     const dni = normDni(dnis[i] || "");
     let ok = true, reason = "";
-
     if (!nombre) { ok = false; reason = "Nombre vacío"; }
     if (!/^[0-9]{7,9}$/.test(dni)) { ok = false; reason = reason ? (reason + " + DNI inválido") : "DNI inválido"; }
-
     rows.push({ nombre, dni, ok, reason });
   }
   return rows;
 }
-
 function renderBulkTable() {
-  // <<< Render en tu DIV #massPreview con conteo y tabla >>>
   const host   = $("massPreview"); if (!host) return;
   const status = $("massStatus");
   const saveBt = $("btnMassSave");
@@ -167,15 +159,10 @@ function renderBulkTable() {
       </table>
     </div>
   `;
-
   if (status) status.textContent = "";
   if (saveBt) saveBt.disabled = valid === 0;
 }
-
-window.rmBulk = (idx) => {
-  BULK_ROWS.splice(idx, 1);
-  renderBulkTable();
-};
+window.rmBulk = (idx) => { BULK_ROWS.splice(idx, 1); renderBulkTable(); };
 
 async function bulkGuardar() {
   const valid = BULK_ROWS.filter(r => r.ok).map(r => ({ dni: r.dni, nombre: r.nombre }));
@@ -198,7 +185,7 @@ async function bulkGuardar() {
     }
     throw new Error(res?.error || "bulk no disponible");
   } catch {
-    // Fallback 1x1 (misma lógica que ya tenías)
+    // Fallback 1x1
     let okCount = 0, errCount = 0;
     for (const it of valid) {
       try {
@@ -208,13 +195,10 @@ async function bulkGuardar() {
           body: JSON.stringify(it)
         }, 30000);
         okCount++;
-      } catch {
-        errCount++;
-      }
+      } catch { errCount++; }
     }
     toast(`Bulk (fallback): OK ${okCount} • Errores ${errCount}`, errCount ? "err" : "ok");
-    BULK_ROWS = [];
-    renderBulkTable();
+    BULK_ROWS = []; renderBulkTable();
     const n = $("massNames"), d = $("massDnis"), s = $("massStatus");
     if (n) n.value = ""; if (d) d.value = ""; if (s) s.textContent = "";
     const saveBt = $("btnMassSave"); if (saveBt) saveBt.disabled = true;
@@ -222,7 +206,6 @@ async function bulkGuardar() {
 }
 
 // ===============================
-
 window.addEventListener("DOMContentLoaded", () => {
   // ------- Buscar por DNI -------
   $("btnBuscar")?.addEventListener("click", async () => {
@@ -238,7 +221,7 @@ window.addEventListener("DOMContentLoaded", () => {
         ${data.resoluciones.map(r => `
           <div class="list-item">
             <div><b>${r.titulo}</b></div>
-            <div class="muted">${[r.expediente, r.nivel].filter(Boolean).join(' • ')}</div>
+            <div class="muted">${[r.expediente, r.numero, r.nivel].filter(Boolean).join(' • ')}</div>
             <div class="field">
               ${
                 r.yaAcuso
@@ -285,7 +268,7 @@ window.addEventListener("DOMContentLoaded", () => {
   $("btnGuardarDoc")?.addEventListener("click", async () => {
     const dniInput = $("docDni")?.value ?? "";
     const nombreInput = $("docNombre")?.value ?? "";
-    const dni = dniInput.replace(/\D+/g, ""); // solo dígitos
+    const dni = dniInput.replace(/\D+/g, "");
     const nombre = nombreInput.replace(/\s+/g, " ").trim();
     if (!/^[0-9]{7,9}$/.test(dni) || !nombre) { return toast("Datos inválidos (DNI 7–9 dígitos y nombre no vacío)", "err"); }
     try {
@@ -325,10 +308,16 @@ window.addEventListener("DOMContentLoaded", () => {
   // ------- Admin: Resoluciones -------
   $("btnCrearRes")?.addEventListener("click", async () => {
     const titulo = $("titulo")?.value.trim(), driveUrl = $("driveUrl")?.value.trim();
-    const expediente = $("expediente")?.value.trim() || null; const nivel = $("nivel")?.value || null;
+    const expediente = $("expediente")?.value.trim() || null;
+    const numero = $("numero")?.value.trim() || null; // NUEVO
+    const nivel = $("nivel")?.value || null;
     if (!titulo || !driveUrl) return toast("Completá título y URL", "err");
     try {
-      const data = await httpJson(api(`/api/admin/resoluciones`), { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ titulo, driveUrl, expediente, nivel }) });
+      const data = await httpJson(api(`/api/admin/resoluciones`), {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
+        body: JSON.stringify({ titulo, driveUrl, expediente, numero, nivel })
+      });
       const s = $("statusRes");
       if (data.alreadyExisted) { s.textContent="Ya creada"; s.className="ok"; toast("Resolución ya existía ✅"); return; }
       if (data.created || data._id) { s.textContent="Creada"; s.className="ok"; toast("Resolución creada ✅"); return; }
@@ -343,16 +332,26 @@ window.addEventListener("DOMContentLoaded", () => {
     c.innerHTML = `<h4>Resoluciones (${list.length})</h4>` + list.map(r => `
       <div class="list-item">
         <div><b>${r.titulo}</b></div>
-        <div class="muted">${[r.expediente, r.nivel, r.driveUrl].filter(Boolean).join(' • ')}</div>
+        <div class="muted">${[r.expediente, r.numero, r.nivel, r.driveUrl].filter(Boolean).join(' • ')}</div>
         <div class="actions" style="margin-top:6px">
-          <button class="btn-plain" onclick="prefillRes('${r._id}','${String(r.titulo).replace(/'/g,"&#39;")}','${String(r.driveUrl).replace(/'/g,"&#39;")}','${r.expediente?String(r.expediente).replace(/'/g,"&#39;"):""}','${r.nivel??""}')">Editar</button>
+          <button class="btn-plain"
+            onclick="prefillRes('${r._id}',
+                               '${String(r.titulo).replace(/'/g,"&#39;")}',
+                               '${String(r.driveUrl).replace(/'/g,"&#39;")}',
+                               '${r.expediente?String(r.expediente).replace(/'/g,"&#39;"):""}',
+                               '${r.numero?String(r.numero).replace(/'/g,"&#39;"):""}',
+                               '${r.nivel??""}')">Editar</button>
           <button class="btn-plain" onclick="verVinculos('${r._id}')">Vínculos</button>
           <button style="background:#e53e3e" onclick="borrarRes('${r._id}')">Borrar</button>
         </div>
       </div>
     `).join("");
   });
-  window.prefillRes = (id,titulo,driveUrl,expediente,nivel)=>{ const t=$("titulo"), d=$("driveUrl"), e=$("expediente"), n=$("nivel"), b=$("resBuscar"); if(t)t.value=titulo; if(d)d.value=driveUrl; if(e)e.value=expediente||""; if(n)n.value=nivel||""; if(b)b.value=titulo; setResSeleccion(id,titulo); toast("Formulario cargado para editar/vincular"); };
+  window.prefillRes = (id,titulo,driveUrl,expediente,numero,nivel)=>{
+    const t=$("titulo"), d=$("driveUrl"), e=$("expediente"), n=$("nivel"), b=$("resBuscar"), num=$("numero");
+    if(t)t.value=titulo; if(d)d.value=driveUrl; if(e)e.value=expediente||""; if(num)num.value=numero||""; if(n)n.value=nivel||"";
+    if(b)b.value=titulo; setResSeleccion(id,titulo); toast("Formulario cargado para editar/vincular");
+  };
   window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus vínculos?"))return;
     const data = await httpJson(api(`/api/admin/resoluciones/${id}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
     if (data.ok) { toast("Resolución borrada ✅"); $("btnListRes").click(); } else toast(data.error||"Error","err"); };
@@ -536,7 +535,6 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // ------- Carga masiva: eventos -------
-  // IDs de tu HTML: btnMassPreview / btnMassSave
   $("btnMassPreview")?.addEventListener("click", () => {
     BULK_ROWS = parseBulkInputs();
     renderBulkTable();
