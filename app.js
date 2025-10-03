@@ -2,22 +2,26 @@
 
 let TOKEN = null;
 const $ = (id) => document.getElementById(id);
-const toggle = (el, visible, display = "") => (el.style.display = visible ? display : "none");
+const toggle = (el, visible, display = "") => (el && (el.style.display = visible ? display : "none"));
 const saveToken = (t) => (TOKEN = t, t ? localStorage.setItem("TOKEN", t) : localStorage.removeItem("TOKEN"));
 
 // Misma-origin: rutas relativas (no hace falta api-base)
 const api = (p) => p;
 
 function toast(msg, type = "ok") {
-  const wrap = $("toasts"); const div = document.createElement("div");
+  const wrap = $("toasts"); if (!wrap) return alert(msg);
+  const div = document.createElement("div");
   div.className = `toast ${type}`; div.textContent = msg; wrap.appendChild(div);
   setTimeout(() => { div.style.opacity = "0"; div.style.transform = "translateY(-6px)"; setTimeout(() => wrap.removeChild(div), 300); }, 2200);
 }
+
 function setAuthUI(email) {
   const badge = $("authBadge");
   if (badge) badge.textContent = email ? "Conectado" : "No conectado";
-  toggle($("btnLogout"), !!email); toggle($("adminPanel"), !!email);
+  toggle($("btnLogout"), !!email);
+  toggle($("adminPanel"), !!email);
 }
+
 const debounce = (fn, ms=250) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
 
 // Utilidad: fetch con timeout y manejo de errores
@@ -33,7 +37,9 @@ async function httpJson(url, opts = {}, timeoutMs = 10000) {
         const data = await res.json();
         if (data?.error) msg = data.error;
       } catch {}
-      throw new Error(msg);
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
     }
     return await res.json();
   } catch (e) {
@@ -70,6 +76,119 @@ window.registrarYDescargar = async function (dni, resolucionId) {
 window.descargarDirecto = function (url) {
   window.open(url, "_blank", "noopener");
 };
+
+// ===============================
+// CARGA MASIVA: estado y helpers
+// ===============================
+let BULK_ROWS = []; // { nombre, dni, ok, reason }
+
+function normName(s) {
+  if (!s) return "";
+  // colapsar espacios, quitar tabulaciones, trim
+  return s.replace(/\s+/g, " ").replace(/\t/g, " ").trim();
+}
+
+function normDni(s) {
+  if (!s) return "";
+  const digits = String(s).replace(/\D+/g, ""); // solo dígitos
+  return digits; // validación afuera (7-9 dígitos)
+}
+
+function parseBulkInputs() {
+  const rawNames = $("bulkNombres")?.value || "";
+  const rawDnis = $("bulkDnis")?.value || "";
+
+  // separar por líneas, también admite pegar columnas: tratamos \r\n y \n
+  const names = rawNames.split(/\r?\n/).map(normName).filter(x => x.length > 0);
+  const dnis = rawDnis.split(/\r?\n/).map(normDni).filter(x => x.length > 0);
+
+  const max = Math.max(names.length, dnis.length);
+  const rows = [];
+
+  for (let i = 0; i < max; i++) {
+    const nombre = normName(names[i] || "");
+    const dni = normDni(dnis[i] || "");
+    let ok = true, reason = "";
+
+    if (!nombre) { ok = false; reason = "Nombre vacío"; }
+    if (!/^[0-9]{7,9}$/.test(dni)) { ok = false; reason = reason ? (reason + " + DNI inválido") : "DNI inválido"; }
+
+    rows.push({ nombre, dni, ok, reason });
+  }
+  return rows;
+}
+
+function renderBulkTable() {
+  const tbody = $("bulkTbody"); if (!tbody) return;
+  const count = $("bulkCount");
+
+  tbody.innerHTML = BULK_ROWS.map((r, idx) => `
+    <tr class="${r.ok ? "" : "danger-row"}">
+      <td style="text-align:center">${idx + 1}</td>
+      <td>${r.nombre || "<i>—</i>"}</td>
+      <td><code>${r.dni || "—"}</code></td>
+      <td>${r.ok ? "<span class='ok'>OK</span>" : `<span class='danger'>${r.reason}</span>`}</td>
+      <td style="text-align:right">
+        <button class="btn-plain" onclick="rmBulk(${idx})">Quitar</button>
+      </td>
+    </tr>
+  `).join("");
+
+  const valid = BULK_ROWS.filter(r => r.ok).length;
+  const invalid = BULK_ROWS.length - valid;
+  if (count) count.textContent = `Filas: ${BULK_ROWS.length} • Válidas: ${valid} • Inválidas: ${invalid}`;
+}
+
+window.rmBulk = (idx) => {
+  BULK_ROWS.splice(idx, 1);
+  renderBulkTable();
+};
+
+async function bulkGuardar() {
+  const valid = BULK_ROWS.filter(r => r.ok).map(r => ({ dni: r.dni, nombre: r.nombre }));
+  if (!valid.length) return toast("No hay filas válidas para guardar", "err");
+
+  // Intento 1: endpoint bulk
+  try {
+    const res = await httpJson(api(`/api/admin/docentes/bulk`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`
+      },
+      body: JSON.stringify({ items: valid })
+    }, 60000);
+    // esperamos algo como { ok:true, upserted: n, updated: m, errors: [...] }
+    if (res?.ok) {
+      toast(`Guardados: ${res.upserted ?? valid.length} (algunos pueden haberse actualizado) ✅`);
+      BULK_ROWS = [];
+      renderBulkTable();
+      return;
+    }
+    // si no devuelve ok, continúo al fallback
+    throw new Error(res?.error || "bulk no disponible");
+  } catch (e) {
+    // Fallback: guardar uno por uno
+    let okCount = 0, errCount = 0;
+    for (const it of valid) {
+      try {
+        await httpJson(api(`/api/admin/docentes`), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization:`Bearer ${TOKEN}` },
+          body: JSON.stringify(it)
+        }, 30000);
+        okCount++;
+      } catch {
+        errCount++;
+      }
+    }
+    toast(`Bulk (fallback): OK ${okCount} • Errores ${errCount}`, errCount ? "err" : "ok");
+    BULK_ROWS = [];
+    renderBulkTable();
+  }
+}
+
+// ===============================
 
 window.addEventListener("DOMContentLoaded", () => {
   // ------- Buscar por DNI -------
@@ -114,7 +233,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // ------- Login -------
   const modal = $("loginModal"), emailIn = $("loginEmail"), passIn = $("loginPass"), errorBox = $("loginError");
-  $("btnLogin")?.addEventListener("click", () => { errorBox.textContent=""; toggle(errorBox,false); emailIn.value=""; passIn.value=""; toggle(modal,true,"flex"); setTimeout(()=>emailIn.focus(),0); });
+  $("btnLogin")?.addEventListener("click", () => { if(!modal) return; errorBox.textContent=""; toggle(errorBox,false); if (emailIn) emailIn.value=""; if (passIn) passIn.value=""; toggle(modal,true,"flex"); setTimeout(()=>emailIn?.focus(),0); });
   $("btnLoginCancel")?.addEventListener("click", () => toggle(modal, false));
   modal?.addEventListener("click", (e) => { if (e.target === modal) toggle(modal, false); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") toggle(modal, false); });
@@ -129,36 +248,54 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   $("btnLogout")?.addEventListener("click", () => { saveToken(null); setAuthUI(null); toast("Sesión cerrada"); });
 
-  // ------- Admin: Docentes -------
-  $("btnGuardarDoc")?.addEventListener("click", async () => {
-    const dni = $("docDni")?.value.trim(), nombre = $("docNombre")?.value.trim();
-    if (!/^[0-9]{7,9}$/.test(dni || "") || !nombre) return toast("Datos inválidos", "err");
-    try {
-      const data = await httpJson(api(`/api/admin/docentes`), { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ dni, nombre }) });
-      const s = $("statusDoc");
-      if (data.alreadyExisted) { s.textContent="Ya creado"; s.className="ok"; toast("Docente ya existía ✅"); return; }
-      if (data.updated)      { s.textContent="Actualizado"; s.className="ok"; toast("Docente actualizado ✅"); return; }
-      if (data.created)      { s.textContent="Creado";     s.className="ok"; toast("Docente creado ✅"); return; }
-      if (data._id)          { s.textContent="Guardado";   s.className="ok"; toast("Docente guardado ✅"); return; }
-      s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err");
-    } catch (e) { toast(e.message || "Error", "err"); }
-  });
+ // ------- Admin: Docentes (individual) -------
+$("btnGuardarDoc")?.addEventListener("click", async () => {
+  // Sanitizar antes de validar
+  const dniInput = $("docDni")?.value ?? "";
+  const nombreInput = $("docNombre")?.value ?? "";
 
-  $("btnListDoc")?.addEventListener("click", async () => {
-    const q = prompt("Buscar (opcional: nombre o DNI):", "") || "";
-    const list = await httpJson(api(`/api/admin/docentes?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
-    const c = $("adminLista"); if (!c) return;
-    c.innerHTML = `<h4>Docentes (${list.length})</h4>` + list.map(d => `
-      <div class="list-item">
-        <b>${d.nombre}</b> — DNI <code>${d.dni}</code>
-        <div class="actions" style="margin-top:6px">
-          <button class="btn-plain" onclick="editarDoc('${d.dni}','${d.nombre.replace(/'/g,"&#39;")}')">Editar</button>
-          <button style="background:#e53e3e" onclick="borrarDoc('${d.dni}')">Borrar</button>
-        </div>
+  // DNI solo dígitos (sin puntos, espacios, guiones, etc.)
+  const dni = dniInput.replace(/\D+/g, "");
+  // Nombre con espacios colapsados y sin bordes
+  const nombre = nombreInput.replace(/\s+/g, " ").trim();
+
+  if (!/^[0-9]{7,9}$/.test(dni) || !nombre) {
+    return toast("Datos inválidos (DNI 7–9 dígitos y nombre no vacío)", "err");
+  }
+
+  try {
+    const data = await httpJson(api(`/api/admin/docentes`), {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
+      body: JSON.stringify({ dni, nombre })
+    });
+    const s = $("statusDoc");
+    if (data.alreadyExisted) { s.textContent="Ya creado"; s.className="ok"; toast("Docente ya existía ✅"); return; }
+    if (data.updated)      { s.textContent="Actualizado"; s.className="ok"; toast("Docente actualizado ✅"); return; }
+    if (data.created)      { s.textContent="Creado";     s.className="ok"; toast("Docente creado ✅"); return; }
+    if (data._id)          { s.textContent="Guardado";   s.className="ok"; toast("Docente guardado ✅"); return; }
+    s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err");
+  } catch (e) {
+    toast(e.message || "Error", "err");
+  }
+});
+
+$("btnListDoc")?.addEventListener("click", async () => {
+  const q = prompt("Buscar (opcional: nombre o DNI):", "") || "";
+  const list = await httpJson(api(`/api/admin/docentes?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
+  const c = $("adminLista"); if (!c) return;
+  c.innerHTML = `<h4>Docentes (${list.length})</h4>` + list.map(d => `
+    <div class="list-item">
+      <b>${d.nombre}</b> — DNI <code>${d.dni}</code>
+      <div class="actions" style="margin-top:6px">
+        <button class="btn-plain" onclick="editarDoc('${d.dni}','${d.nombre.replace(/'/g,"&#39;")}')">Editar</button>
+        <button style="background:#e53e3e" onclick="borrarDoc('${d.dni}')">Borrar</button>
       </div>
-    `).join("");
-  });
-  window.editarDoc = (dni,nombre)=>{ $("docDni").value=dni; $("docNombre").value=nombre; };
+    </div>
+  `).join("");
+});
+
+  window.editarDoc = (dni,nombre)=>{ const dn = $("docDni"), nm = $("docNombre"); if(dn) dn.value=dni; if(nm) nm.value=nombre; };
   window.borrarDoc = async (dni)=>{ if(!confirm(`Borrar docente DNI ${dni}?`))return;
     const data = await httpJson(api(`/api/admin/docentes/${dni}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
     if (data.ok) { toast("Docente borrado ✅"); $("btnListDoc").click(); } else toast(data.error||"Error","err"); };
@@ -193,7 +330,7 @@ window.addEventListener("DOMContentLoaded", () => {
       </div>
     `).join("");
   });
-  window.prefillRes = (id,titulo,driveUrl,expediente,nivel)=>{ $("titulo").value=titulo; $("driveUrl").value=driveUrl; $("expediente").value=expediente||""; $("nivel").value=nivel||""; $("resBuscar").value=titulo; setResSeleccion(id,titulo); toast("Formulario cargado para editar/vincular"); };
+  window.prefillRes = (id,titulo,driveUrl,expediente,nivel)=>{ const t=$("titulo"), d=$("driveUrl"), e=$("expediente"), n=$("nivel"), b=$("resBuscar"); if(t)t.value=titulo; if(d)d.value=driveUrl; if(e)e.value=expediente||""; if(n)n.value=nivel||""; if(b)b.value=titulo; setResSeleccion(id,titulo); toast("Formulario cargado para editar/vincular"); };
   window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus vínculos?"))return;
     const data = await httpJson(api(`/api/admin/resoluciones/${id}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
     if (data.ok) { toast("Resolución borrada ✅"); $("btnListRes").click(); } else toast(data.error||"Error","err"); };
@@ -208,12 +345,14 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   const resSug = $("resSug"), resBuscar = $("resBuscar"), resSel = $("resSel");
   function setResSeleccion(id, titulo) {
+    if (!resSel) return;
     resSel.textContent = titulo; resSel.style.display = ""; resSel.dataset.id = id;
     const x = document.createElement("button"); x.textContent = "✕";
-    x.onclick = ()=>{ resSel.style.display="none"; resSel.dataset.id=""; resBuscar.value=""; };
+    x.onclick = ()=>{ resSel.style.display="none"; resSel.dataset.id=""; if(resBuscar) resBuscar.value=""; };
     resSel.appendChild(x);
   }
   function resRenderSugs(list){
+    if (!resSug) return;
     resSug.innerHTML = list.map((r,i) => `<div class="sugs-item" data-idx="${i}" data-id="${r._id}">${r.titulo}</div>`).join("");
     toggle(resSug, list.length>0, "");
   }
@@ -231,7 +370,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }));
 
   function resSetActive(newIdx){
-    const items = resSug.querySelectorAll(".sugs-item");
+    const items = resSug?.querySelectorAll(".sugs-item") || [];
     items.forEach(el => el.classList.remove("active"));
     if (newIdx >= 0 && newIdx < items.length) {
       items[newIdx].classList.add("active");
@@ -242,7 +381,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (idx < 0 || idx >= RES_VIEW.length) return;
     const r = RES_VIEW[idx];
     setResSeleccion(r._id, r.titulo);
-    resBuscar.value = r.titulo;
+    if (resBuscar) resBuscar.value = r.titulo;
     toggle(resSug, false);
   }
   resBuscar?.addEventListener("keydown", (e)=>{
@@ -272,19 +411,20 @@ window.addEventListener("DOMContentLoaded", () => {
   const docSug = $("docSug"), docBuscar = $("docBuscar"), docSel = $("docSel");
   let DOC_TIMER=null;
   const chipFor = (dni,nombre)=>`<span class="chip" data-dni="${dni}">${nombre} — ${dni} <button onclick="rmChip('${dni}')">✕</button></span>`;
-  window.rmChip = (dni)=>{ const el = docSel.querySelector(`.chip[data-dni="${dni}"]`); if(el) el.remove(); };
+  window.rmChip = (dni)=>{ const el = docSel?.querySelector(`.chip[data-dni="${dni}"]`); if(el) el.remove(); };
 
   let DOC_VIEW = [];
   let docActive = -1;
 
   function docRenderSugs(list){
+    if (!docSug) return;
     docSug.innerHTML = list.map((d,i) =>
       `<div class="sugs-item" data-idx="${i}" data-dni="${d.dni}" data-nombre="${d.nombre.replace(/"/g,"&quot;")}"><b>${d.dni}</b> — ${d.nombre}</div>`
     ).join("");
     toggle(docSug, list.length>0, "");
   }
   function docSetActive(newIdx){
-    const items = docSug.querySelectorAll(".sugs-item");
+    const items = docSug?.querySelectorAll(".sugs-item") || [];
     items.forEach(el => el.classList.remove("active"));
     if (newIdx >= 0 && newIdx < items.length) {
       items[newIdx].classList.add("active");
@@ -294,10 +434,11 @@ window.addEventListener("DOMContentLoaded", () => {
   function docAddByIndex(idx){
     if (idx < 0 || idx >= DOC_VIEW.length) return;
     const d = DOC_VIEW[idx];
-    if (!docSel.querySelector(`.chip[data-dni="${d.dni}"]`)) {
-      docSel.insertAdjacentHTML("beforeend", chipFor(d.dni, d.nombre));
+    if (!docSel?.querySelector(`.chip[data-dni="${d.dni}"]`)) {
+      docSel?.insertAdjacentHTML("beforeend", chipFor(d.dni, d.nombre));
     }
-    toggle(docSug,false); docBuscar.value=""; docActive=-1;
+    toggle(docSug,false); if (docBuscar) docBuscar.value="";
+    docActive=-1;
   }
 
   docBuscar?.addEventListener("input", ()=>{
@@ -335,8 +476,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // ------- Vincular -------
   $("btnVincular")?.addEventListener("click", async ()=>{
-    const resolucionId = $("resSel").dataset.id || "";
-    const dnis = Array.from($("docSel").querySelectorAll(".chip")).map(x=>x.dataset.dni);
+    const resolucionId = $("resSel")?.dataset.id || "";
+    const dnis = Array.from($("docSel")?.querySelectorAll(".chip") || []).map(x=>x.dataset.dni);
     if (!resolucionId) return toast("Elegí una resolución", "err");
     if (!dnis.length) return toast("Agregá al menos un docente", "err");
     const data = await httpJson(api(`/api/admin/vinculos`), { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ resolucionId, dnis }) });
@@ -344,7 +485,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   $("btnVerVinculos")?.addEventListener("click", async ()=>{
-    const id = $("resSel").dataset.id || "";
+    const id = $("resSel")?.dataset.id || "";
     if (!id) return toast("Primero elegí una resolución", "err");
     const list = await httpJson(api(`/api/admin/vinculos/${id}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
     const c = $("adminLista"); if (!c) return;
@@ -357,7 +498,7 @@ window.addEventListener("DOMContentLoaded", () => {
       </div>
     `).join("");
   });
-  window.verVinculos = (id)=>{ setResSeleccion(id, $("resBuscar").value || "Resolución"); $("btnVerVinculos").click(); };
+  window.verVinculos = (id)=>{ if ($("resBuscar")) $("resBuscar").value = $("resBuscar").value || "Resolución"; setResSeleccion(id, $("resBuscar")?.value || "Resolución"); $("btnVerVinculos")?.click(); };
   window.desvincular = async (resolucionId, docenteDni) => {
     const data = await httpJson(api(`/api/admin/vinculos`), { method:"DELETE", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ resolucionId, docenteDni }) });
     if (data.ok) { toast("Vínculo eliminado"); $("btnVerVinculos").click(); } else toast(data.error||"Error","err");
@@ -372,6 +513,23 @@ window.addEventListener("DOMContentLoaded", () => {
     ).join("");
   });
 
+  // ------- Carga masiva: eventos -------
+  $("btnBulkParse")?.addEventListener("click", () => {
+    BULK_ROWS = parseBulkInputs();
+    renderBulkTable();
+    const valid = BULK_ROWS.filter(r => r.ok).length;
+    const invalid = BULK_ROWS.length - valid;
+    if (!BULK_ROWS.length) toast("No se detectaron filas", "err");
+    else if (invalid) toast(`Detectadas ${BULK_ROWS.length}. Válidas: ${valid} • Inválidas: ${invalid}`, "err");
+    else toast(`Detectadas ${BULK_ROWS.length} filas válidas ✅`);
+  });
+
+  $("btnBulkGuardar")?.addEventListener("click", async () => {
+    if (!TOKEN) return toast("Debés iniciar sesión para guardar", "err");
+    await bulkGuardar();
+  });
+
+  // Estado inicial si ya hay token
   const t = localStorage.getItem("TOKEN");
   if (t) { TOKEN = t; setAuthUI("administrador"); }
 });

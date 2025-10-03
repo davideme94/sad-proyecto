@@ -55,6 +55,34 @@
             <button id="btnListDoc" class="btn-plain">Ver docentes</button>
           </div>
 
+          <!-- CARGA MASIVA (dos columnas con vista previa y guardado) -->
+          <h4 class="section-title">Carga masiva de docentes (dos columnas con vista previa)</h4>
+          <div class="grid-3">
+            <div>
+              <div class="muted" style="margin-bottom:6px">Nombres — una por línea</div>
+              <textarea id="massNames" rows="8" placeholder="Ej:
+BALMACEDA VERONICA GRACIELA
+PEREZ JUAN
+LOPEZ MARIA"></textarea>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px">DNIs — una por línea (se ignoran puntos/espacios)</div>
+              <textarea id="massDnis" rows="8" placeholder="Ej:
+17142116
+12345678
+23456789"></textarea>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px">Acciones</div>
+              <div class="actions" style="margin-top:4px; flex-direction:column; align-items:flex-start">
+                <button id="btnMassPreview">Previsualizar</button>
+                <button id="btnMassSave" class="btn-plain" disabled>Guardar todos</button>
+                <span id="massStatus" class="muted"></span>
+              </div>
+            </div>
+          </div>
+          <div id="massPreview" style="margin-top:10px"></div>
+
           <!-- RESOLUCIÓN -->
           <h4 class="section-title">Resolución</h4>
           <div class="grid">
