@@ -174,7 +174,7 @@ async function bulkGuardar() {
       try {
         await httpJson(api(`/api/admin/docentes`), {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization:`Bearer ${TOKEN}` },
+          headers: { "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
           body: JSON.stringify(it)
         }, 30000);
         okCount++;
@@ -248,52 +248,52 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   $("btnLogout")?.addEventListener("click", () => { saveToken(null); setAuthUI(null); toast("Sesión cerrada"); });
 
- // ------- Admin: Docentes (individual) -------
-$("btnGuardarDoc")?.addEventListener("click", async () => {
-  // Sanitizar antes de validar
-  const dniInput = $("docDni")?.value ?? "";
-  const nombreInput = $("docNombre")?.value ?? "";
+  // ------- Admin: Docentes (individual) -------
+  $("btnGuardarDoc")?.addEventListener("click", async () => {
+    // Sanitizar antes de validar
+    const dniInput = $("docDni")?.value ?? "";
+    const nombreInput = $("docNombre")?.value ?? "";
 
-  // DNI solo dígitos (sin puntos, espacios, guiones, etc.)
-  const dni = dniInput.replace(/\D+/g, "");
-  // Nombre con espacios colapsados y sin bordes
-  const nombre = nombreInput.replace(/\s+/g, " ").trim();
+    // DNI solo dígitos (sin puntos, espacios, guiones, etc.)
+    const dni = dniInput.replace(/\D+/g, "");
+    // Nombre con espacios colapsados y sin bordes
+    const nombre = nombreInput.replace(/\s+/g, " ").trim();
 
-  if (!/^[0-9]{7,9}$/.test(dni) || !nombre) {
-    return toast("Datos inválidos (DNI 7–9 dígitos y nombre no vacío)", "err");
-  }
+    if (!/^[0-9]{7,9}$/.test(dni) || !nombre) {
+      return toast("Datos inválidos (DNI 7–9 dígitos y nombre no vacío)", "err");
+    }
 
-  try {
-    const data = await httpJson(api(`/api/admin/docentes`), {
-      method:"POST",
-      headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
-      body: JSON.stringify({ dni, nombre })
-    });
-    const s = $("statusDoc");
-    if (data.alreadyExisted) { s.textContent="Ya creado"; s.className="ok"; toast("Docente ya existía ✅"); return; }
-    if (data.updated)      { s.textContent="Actualizado"; s.className="ok"; toast("Docente actualizado ✅"); return; }
-    if (data.created)      { s.textContent="Creado";     s.className="ok"; toast("Docente creado ✅"); return; }
-    if (data._id)          { s.textContent="Guardado";   s.className="ok"; toast("Docente guardado ✅"); return; }
-    s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err");
-  } catch (e) {
-    toast(e.message || "Error", "err");
-  }
-});
+    try {
+      const data = await httpJson(api(`/api/admin/docentes`), {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
+        body: JSON.stringify({ dni, nombre })
+      });
+      const s = $("statusDoc");
+      if (data.alreadyExisted) { s.textContent="Ya creado"; s.className="ok"; toast("Docente ya existía ✅"); return; }
+      if (data.updated)      { s.textContent="Actualizado"; s.className="ok"; toast("Docente actualizado ✅"); return; }
+      if (data.created)      { s.textContent="Creado";     s.className="ok"; toast("Docente creado ✅"); return; }
+      if (data._id)          { s.textContent="Guardado";   s.className="ok"; toast("Docente guardado ✅"); return; }
+      s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err");
+    } catch (e) {
+      toast(e.message || "Error", "err");
+    }
+  });
 
-$("btnListDoc")?.addEventListener("click", async () => {
-  const q = prompt("Buscar (opcional: nombre o DNI):", "") || "";
-  const list = await httpJson(api(`/api/admin/docentes?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
-  const c = $("adminLista"); if (!c) return;
-  c.innerHTML = `<h4>Docentes (${list.length})</h4>` + list.map(d => `
-    <div class="list-item">
-      <b>${d.nombre}</b> — DNI <code>${d.dni}</code>
-      <div class="actions" style="margin-top:6px">
-        <button class="btn-plain" onclick="editarDoc('${d.dni}','${d.nombre.replace(/'/g,"&#39;")}')">Editar</button>
-        <button style="background:#e53e3e" onclick="borrarDoc('${d.dni}')">Borrar</button>
+  $("btnListDoc")?.addEventListener("click", async () => {
+    const q = prompt("Buscar (opcional: nombre o DNI):", "") || "";
+    const list = await httpJson(api(`/api/admin/docentes?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
+    const c = $("adminLista"); if (!c) return;
+    c.innerHTML = `<h4>Docentes (${list.length})</h4>` + list.map(d => `
+      <div class="list-item">
+        <b>${d.nombre}</b> — DNI <code>${d.dni}</code>
+        <div class="actions" style="margin-top:6px">
+          <button class="btn-plain" onclick="editarDoc('${d.dni}','${d.nombre.replace(/'/g,"&#39;")}')">Editar</button>
+          <button style="background:#e53e3e" onclick="borrarDoc('${d.dni}')">Borrar</button>
+        </div>
       </div>
-    </div>
-  `).join("");
-});
+    `).join("");
+  });
 
   window.editarDoc = (dni,nombre)=>{ const dn = $("docDni"), nm = $("docNombre"); if(dn) dn.value=dni; if(nm) nm.value=nombre; };
   window.borrarDoc = async (dni)=>{ if(!confirm(`Borrar docente DNI ${dni}?`))return;
@@ -506,7 +506,7 @@ $("btnListDoc")?.addEventListener("click", async () => {
 
   // ------- Acuses -------
   $("btnListAcuses")?.addEventListener("click", async () => {
-    const list = await httpJson(api(`/api/admin/acuses`), { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const list = await httpJson(api(`/api/admin/acuses`), { headers: { Authorization: `Bearer ${TOKEN}` }});
     const c = $("adminLista"); if (!c) return;
     c.innerHTML = `<h4>Acuses (${list.length})</h4>` + list.map(a =>
       `<div class="list-item">✅ ${new Date(a.firmadoEn).toLocaleString()} — DNI ${a.docenteDni} — <b>${a.nombreCompleto}</b> — ${a.email} — Res: <code>${a.resolucionId}</code></div>`
@@ -514,7 +514,9 @@ $("btnListDoc")?.addEventListener("click", async () => {
   });
 
   // ------- Carga masiva: eventos -------
-  $("btnBulkParse")?.addEventListener("click", () => {
+  // Soportar ambos IDs: btnBulkParse (tu JS original) y btnBulkPreview (HTML previo)
+  const bulkPreviewBtn = $("btnBulkParse") || $("btnBulkPreview");
+  bulkPreviewBtn?.addEventListener("click", () => {
     BULK_ROWS = parseBulkInputs();
     renderBulkTable();
     const valid = BULK_ROWS.filter(r => r.ok).length;
