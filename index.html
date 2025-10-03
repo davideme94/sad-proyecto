@@ -7,8 +7,10 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <!-- Toasts -->
   <div class="toasts" id="toasts"></div>
 
+  <!-- Header -->
   <header class="topbar" role="banner">
     <div class="topbar-inner">
       <img src="images/sad-logo.JPG" alt="Logo SAD" class="logo" onerror="this.style.display='none'">
@@ -16,8 +18,10 @@
     </div>
   </header>
 
+  <!-- Main -->
   <main role="main">
     <div class="wrap">
+      <!-- Buscador público -->
       <div class="card">
         <h2>Buscar por DNI</h2>
         <div class="row">
@@ -27,6 +31,7 @@
         <div id="resultado" class="resultado"></div>
       </div>
 
+      <!-- Panel Admin -->
       <div class="card">
         <div class="panel">
           <h3 class="panel-title">Panel Admin</h3>
@@ -38,6 +43,7 @@
         </div>
 
         <div id="adminPanel" style="display:none; margin-top:12px">
+          <!-- DOCENTE -->
           <h4 class="section-title">Docente</h4>
           <div class="grid">
             <input id="docNombre" placeholder="Nombre docente" />
@@ -49,11 +55,13 @@
             <button id="btnListDoc" class="btn-plain">Ver docentes</button>
           </div>
 
+          <!-- RESOLUCIÓN -->
           <h4 class="section-title">Resolución</h4>
           <div class="grid">
             <input id="titulo" placeholder="Título/Descripción" />
             <input id="driveUrl" placeholder="URL pública de Google (Drive/Docs)" />
             <input id="expediente" placeholder="Expediente (opcional)" />
+            <!-- Año -> Nivel -->
             <select id="nivel" aria-label="Nivel">
               <option value="">Nivel (opcional)</option>
               <option>PRIMARIA</option>
@@ -72,6 +80,7 @@
             <button id="btnListAcuses" class="btn-plain">Ver acuses</button>
           </div>
 
+          <!-- VINCULAR (autocompletar resolución + chips de docentes) -->
           <h4 class="section-title">Vincular resolución a docentes (muchos a muchos)</h4>
           <div class="grid-3">
             <div class="sugs">
@@ -90,15 +99,34 @@
             </div>
           </div>
 
+          <!-- LISTAS dinámicas -->
           <div id="adminLista" style="margin-top:12px"></div>
         </div>
       </div>
     </div>
   </main>
 
+  <!-- Footer -->
   <div class="footerBar" aria-hidden="true"></div>
   <footer class="footer">© 2025 Secretaría de Asuntos Docentes de José C. Paz. Todos los derechos reservados.</footer>
 
+  <!-- MODAL LOGIN (AGREGADO) -->
+  <div id="loginModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loginTitle" style="display:none">
+    <div class="box">
+      <h3 id="loginTitle" class="modal-title">Ingreso Administrador</h3>
+      <div class="modal-body">
+        <input id="loginEmail" placeholder="Email" />
+        <input id="loginPass" type="password" placeholder="Contraseña" />
+        <div id="loginError" class="danger" style="display:none; font-size:14px;"></div>
+        <div class="modal-actions">
+          <button id="btnLoginCancel" type="button" class="btn-plain">Cancelar</button>
+          <button id="btnLoginSubmit" type="button">Entrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS -->
   <script src="/app.js" defer></script>
 </body>
 </html>
