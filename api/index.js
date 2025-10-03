@@ -29,7 +29,7 @@ async function dbConnect() {
       .connect(MONGODB_URI, {
         family: 4,
         serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 8000,
+        socketTimeoutMS: 8000
       })
       .then((m) => m)
       .catch((err) => {
@@ -50,35 +50,20 @@ const docenteSchema = new mongoose.Schema(
   { dni: { type: String, required: true, unique: true, match: /^[0-9]{7,9}$/ }, nombre: { type: String, required: true } },
   { timestamps: true }
 );
-
 const NIVELES = ["PRIMARIA", "SECUNDARIA", "TECNICA", "EDUC. FISICA", "ARTISTICA", "PSICOLOGIA", "ADULTOS Y CENS"];
-
 const resolucionSchema = new mongoose.Schema(
   { docenteDni: { type: String, index: true, match: /^[0-9]{7,9}$/ }, titulo: { type: String, required: true }, driveUrl: { type: String, required: true }, expediente: String, nivel: { type: String, enum: NIVELES, default: null }, creadoPor: String },
   { timestamps: true }
 );
-
 const vinculoSchema = new mongoose.Schema(
   { docenteDni: { type: String, required: true, match: /^[0-9]{7,9}$/ }, resolucionId: { type: mongoose.Schema.Types.ObjectId, ref: "Resolucion", required: true } },
   { timestamps: true }
 );
 vinculoSchema.index({ docenteDni: 1, resolucionId: 1 }, { unique: true });
-
 const acuseSchema = new mongoose.Schema(
-  {
-    docenteDni: { type: String, required: true, index: true },
-    resolucionId: { type: mongoose.Schema.Types.ObjectId, ref: "Resolucion", required: true, index: true },
-    nombreCompleto: { type: String, required: true },
-    email: { type: String, required: true, match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
-    acepto: { type: Boolean, required: true },
-    textoLegal: { type: String, required: true },
-    ipHash: String,
-    userAgent: String,
-    firmadoEn: { type: Date, default: Date.now },
-  },
+  { docenteDni: { type: String, required: true, index: true }, resolucionId: { type: mongoose.Schema.Types.ObjectId, ref: "Resolucion", required: true, index: true }, nombreCompleto: { type: String, required: true }, email: { type: String, required: true, match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ }, acepto: { type: Boolean, required: true }, textoLegal: { type: String, required: true }, ipHash: String, userAgent: String, firmadoEn: { type: Date, default: Date.now } },
   { timestamps: true }
 );
-
 const usuarioSchema = new mongoose.Schema({ email: { type: String, unique: true }, passHash: String }, { timestamps: true });
 
 const Docente = mongoose.models.Docente || mongoose.model("Docente", docenteSchema);
@@ -95,17 +80,15 @@ app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true }));
 
 // --- ENDPOINTS sin DB (antes del middleware) ---
 app.get(["/api/ping", "/ping"], (_req, res) => res.json({ ok: true, ts: Date.now() }));
-
 app.get(["/api/health", "/health"], (req, res) => {
   const ok = mongoose.connection?.readyState === 1;
   const state = mongoose.connection?.readyState ?? 0;
   if (req.query.verbose === "1") {
     return res.json({
-      ok,
-      state,
+      ok, state,
       error: LAST_DB_ERROR
         ? { name: LAST_DB_ERROR.name, message: String(LAST_DB_ERROR.message).slice(0, 400), code: LAST_DB_ERROR.code ?? null }
-        : null,
+        : null
     });
   }
   res.json({ ok, state });
@@ -138,13 +121,12 @@ function auth(req, res, next) {
   next();
 }
 
-// --- Middleware de DB: saltea ping/health (ignora query y trailing slash) ---
+// --- Middleware de DB: saltea ping/health (ignora query y / final) ---
 app.use(async (req, res, next) => {
   const raw = req.originalUrl || req.url || "";
-  const pathOnly = raw.split("?")[0].replace(/\/+$/, ""); // sin query y sin barra final
+  const pathOnly = raw.split("?")[0].replace(/\/+$/, "");
   const BYPASS = new Set(["/api/health", "/health", "/api/ping", "/ping"]);
   if (BYPASS.has(pathOnly)) return next();
-
   try {
     await withTimeout(dbConnect(), 4500, "DB_CONNECT_TIMEOUT");
     await ensureAdmin();
@@ -285,9 +267,7 @@ app.get("/api/public/buscar", async (req, res) => {
     const acuses = await Acuse.find({
       docenteDni: dni,
       resolucionId: { $in: resoluciones.map((r) => r._id) },
-    })
-      .select({ resolucionId: 1 })
-      .lean();
+    }).select({ resolucionId: 1 }).lean();
 
     const yaIds = new Set(acuses.map((a) => String(a.resolucionId)));
     const resolucionesMarcadas = resoluciones.map((r) => ({
