@@ -27,7 +27,7 @@ async function dbConnect() {
   if (!global._mongoose.promise) {
     global._mongoose.promise = mongoose
       .connect(MONGODB_URI, {
-        family: 4,
+        family: 4,                    // fuerza IPv4
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 8000,
       })
@@ -94,9 +94,10 @@ app.use(helmet({ contentSecurityPolicy: process.env.VERCEL === "1" ? undefined :
 app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true }));
 
 // --- ENDPOINTS que no deben tocar la DB (ANTES del middleware) ---
-app.get("/api/ping", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+// Exponemos ambas variantes por el rewrite de Vercel: con y sin /api
+app.get(["/api/ping", "/ping"], (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
-app.get("/api/health", (req, res) => {
+app.get(["/api/health", "/health"], (req, res) => {
   const ok = mongoose.connection?.readyState === 1;
   const state = mongoose.connection?.readyState ?? 0;
   if (req.query.verbose === "1") {
@@ -138,9 +139,10 @@ function auth(req, res, next) {
   next();
 }
 
-// --- Middleware de DB (se salta health/ping) ---
+// --- Middleware de DB (se salta health/ping en ambas variantes) ---
 app.use(async (req, res, next) => {
-  if (req.path === "/api/health" || req.path === "/api/ping") return next();
+  const p = req.path || req.url || "";
+  if (p === "/api/health" || p === "/health" || p === "/api/ping" || p === "/ping") return next();
   try {
     await withTimeout(dbConnect(), 4500, "DB_CONNECT_TIMEOUT");
     await ensureAdmin();
