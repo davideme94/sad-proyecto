@@ -274,7 +274,7 @@ app.delete("/api/admin/vinculos", auth, async (req, res) => {
   res.json({ ok: true, deleted: true });
 });
 
-// ---- Admin: listar acuses (FALTABA)
+// ---- Admin: listar acuses
 app.get("/api/admin/acuses", auth, async (_req, res) => {
   const list = await Acuse.find().sort({ firmadoEn: -1 }).lean();
   res.json(list);
@@ -332,6 +332,6 @@ if (process.env.VERCEL !== "1") {
   app.listen(port, () => console.log("API on http://localhost:" + port));
 }
 
-// Runtime Node 18 para Latest Build System
-export const config = { runtime: "nodejs18.x" };
+// Runtime para Latest Build System (válidos: "nodejs", "edge")
+export const config = { runtime: "nodejs" };
 export default serverless(app);
