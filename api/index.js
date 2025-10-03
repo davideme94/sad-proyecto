@@ -9,7 +9,6 @@ import rateLimit from "express-rate-limit";
 import serverless from "serverless-http";
 import path from "path";
 import { fileURLToPath } from "url";
-import cors from "cors";
 
 if (process.env.VERCEL !== "1") {
   const { config } = await import("dotenv");
@@ -78,18 +77,6 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.use(helmet({ contentSecurityPolicy: process.env.VERCEL === "1" ? undefined : false }));
 app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true }));
-
-// CORS: permitir al Static Site de Render (puedes pasar varios separados por coma)
-const ALLOW_ORIGIN = (process.env.CORS_ORIGIN || "").split(",").map(s => s.trim()).filter(Boolean);
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin || !ALLOW_ORIGIN.length || ALLOW_ORIGIN.includes(origin)) return cb(null, true);
-    return cb(new Error("CORS bloqueado"), false);
-  },
-  methods: ["GET","POST","PATCH","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type","Authorization","Accept"],
-  maxAge: 86400,
-}));
 
 // --- ENDPOINTS sin DB (antes del middleware) ---
 app.get(["/api/ping", "/ping"], (_req, res) => res.json({ ok: true, ts: Date.now() }));
@@ -316,7 +303,7 @@ app.post("/api/public/acuse", async (req, res) => {
   }
 });
 
-// ---- Front local
+// ---- Servir front (estáticos) en el mismo servicio
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 if (process.env.VERCEL !== "1") {
@@ -326,6 +313,7 @@ if (process.env.VERCEL !== "1") {
   });
 }
 
+// Render ejecuta el server normal (no serverless)
 if (process.env.VERCEL !== "1") {
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log("API on http://localhost:" + port));
