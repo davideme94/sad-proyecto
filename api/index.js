@@ -50,7 +50,7 @@ const docenteSchema = new mongoose.Schema(
   { dni: { type: String, required: true, unique: true, match: /^[0-9]{7,9}$/ }, nombre: { type: String, required: true } },
   { timestamps: true }
 );
-const NIVELES = ["PRIMARIA", "SECUNDARIA", "TECNICA", "EDUC. FISICA", "ARTISTICA", "PSICOLOGIA", "ADULTOS Y CENS"];
+const NIVELES = ["INICIAL","PRIMARIA", "SECUNDARIA", "TECNICA", "EDUC. FISICA", "ARTISTICA", "PSICOLOGIA", "ADULTOS Y CENS"];
 const resolucionSchema = new mongoose.Schema(
   { docenteDni: { type: String, index: true, match: /^[0-9]{7,9}$/ }, titulo: { type: String, required: true }, driveUrl: { type: String, required: true }, expediente: String, nivel: { type: String, enum: NIVELES, default: null }, creadoPor: String },
   { timestamps: true }
