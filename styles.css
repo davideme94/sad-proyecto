@@ -59,7 +59,24 @@ button:hover{background:var(--azul-btn-hover)}
 }
 
 /* Footer */
-.footerBar{background:var(--azul);height:40px;margin-top:24px}
+.footerBar{
+  background:var(--azul);
+  height:40px;
+  margin-top:24px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 12px;
+}
+.footerBar .footerBar-msg{
+  color:#fff;                 /* texto blanco */
+  font-size:14px;
+  text-align:center;
+}
+.footerBar .footerBar-msg a{
+  color:#fff;                 /* link blanco */
+  text-decoration:underline;
+}
 .footer{padding:14px 12px;text-align:center;font-size:14px;color:#3f3f3f}
 
 /* Modal */

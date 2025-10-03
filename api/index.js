@@ -28,8 +28,9 @@ async function dbConnect() {
     global._mongoose.promise = mongoose
       .connect(MONGODB_URI, {
         family: 4,
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 8000
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 30000,
+        connectTimeoutMS: 30000
       })
       .then((m) => m)
       .catch((err) => {
@@ -128,7 +129,7 @@ app.use(async (req, res, next) => {
   const BYPASS = new Set(["/api/health", "/health", "/api/ping", "/ping"]);
   if (BYPASS.has(pathOnly)) return next();
   try {
-    await withTimeout(dbConnect(), 4500, "DB_CONNECT_TIMEOUT");
+    await withTimeout(dbConnect(), 30000, "DB_CONNECT_TIMEOUT");
     await ensureAdmin();
     next();
   } catch (e) {
