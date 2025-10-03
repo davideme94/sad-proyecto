@@ -15,23 +15,26 @@ if (process.env.VERCEL !== "1") {
   config();
 }
 
-const MONGODB_URI = process.env.MONGODB_URI || "";
+const MONGODB_URI = (process.env.MONGODB_URI || "").trim();
 
-// Conexión Mongo con timeout corto y reintentos controlados
+// ---------- Conexión Mongo (timeout corto + IPv4) ----------
 if (!global._mongoose) global._mongoose = { conn: null, promise: null };
+let LAST_DB_ERROR = null;
+
 async function dbConnect() {
   if (global._mongoose.conn) return global._mongoose.conn;
   if (!MONGODB_URI) throw new Error("MONGODB_URI not set");
   if (!global._mongoose.promise) {
     global._mongoose.promise = mongoose
       .connect(MONGODB_URI, {
+        family: 4,
         serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 10000,
+        socketTimeoutMS: 8000,
       })
       .then((m) => m)
       .catch((err) => {
-        // liberar para reintento en el próximo request
         global._mongoose.promise = null;
+        LAST_DB_ERROR = err;
         throw err;
       });
   }
@@ -39,43 +42,24 @@ async function dbConnect() {
   return global._mongoose.conn;
 }
 
+const withTimeout = (p, ms, name = "timeout") =>
+  Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error(name)), ms))]);
+
 // --------- Schemas ---------
 const docenteSchema = new mongoose.Schema(
-  {
-    dni: { type: String, required: true, unique: true, match: /^[0-9]{7,9}$/ },
-    nombre: { type: String, required: true },
-  },
+  { dni: { type: String, required: true, unique: true, match: /^[0-9]{7,9}$/ }, nombre: { type: String, required: true } },
   { timestamps: true }
 );
 
-const NIVELES = [
-  "PRIMARIA",
-  "SECUNDARIA",
-  "TECNICA",
-  "EDUC. FISICA",
-  "ARTISTICA",
-  "PSICOLOGIA",
-  "ADULTOS Y CENS",
-];
+const NIVELES = ["PRIMARIA", "SECUNDARIA", "TECNICA", "EDUC. FISICA", "ARTISTICA", "PSICOLOGIA", "ADULTOS Y CENS"];
 
 const resolucionSchema = new mongoose.Schema(
-  {
-    docenteDni: { type: String, index: true, match: /^[0-9]{7,9}$/ },
-    titulo: { type: String, required: true },
-    driveUrl: { type: String, required: true },
-    expediente: String,
-    nivel: { type: String, enum: NIVELES, default: null },
-    creadoPor: String,
-  },
+  { docenteDni: { type: String, index: true, match: /^[0-9]{7,9}$/ }, titulo: { type: String, required: true }, driveUrl: { type: String, required: true }, expediente: String, nivel: { type: String, enum: NIVELES, default: null }, creadoPor: String },
   { timestamps: true }
 );
 
-// muchos-a-muchos resolución ↔ docentes
 const vinculoSchema = new mongoose.Schema(
-  {
-    docenteDni: { type: String, required: true, match: /^[0-9]{7,9}$/ },
-    resolucionId: { type: mongoose.Schema.Types.ObjectId, ref: "Resolucion", required: true },
-  },
+  { docenteDni: { type: String, required: true, match: /^[0-9]{7,9}$/ }, resolucionId: { type: mongoose.Schema.Types.ObjectId, ref: "Resolucion", required: true } },
   { timestamps: true }
 );
 vinculoSchema.index({ docenteDni: 1, resolucionId: 1 }, { unique: true });
@@ -95,10 +79,7 @@ const acuseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const usuarioSchema = new mongoose.Schema(
-  { email: { type: String, unique: true }, passHash: String },
-  { timestamps: true }
-);
+const usuarioSchema = new mongoose.Schema({ email: { type: String, unique: true }, passHash: String }, { timestamps: true });
 
 const Docente = mongoose.models.Docente || mongoose.model("Docente", docenteSchema);
 const Resolucion = mongoose.models.Resolucion || mongoose.model("Resolucion", resolucionSchema);
@@ -112,6 +93,25 @@ app.use(express.json({ limit: "1mb" }));
 app.use(helmet({ contentSecurityPolicy: process.env.VERCEL === "1" ? undefined : false }));
 app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true }));
 
+// --- ENDPOINTS que no deben tocar la DB (ANTES del middleware) ---
+app.get("/api/ping", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+
+app.get("/api/health", (req, res) => {
+  const ok = mongoose.connection?.readyState === 1;
+  const state = mongoose.connection?.readyState ?? 0;
+  if (req.query.verbose === "1") {
+    return res.json({
+      ok,
+      state,
+      error: LAST_DB_ERROR
+        ? { name: LAST_DB_ERROR.name, message: String(LAST_DB_ERROR.message).slice(0, 400), code: LAST_DB_ERROR.code ?? null }
+        : null,
+    });
+  }
+  res.json({ ok, state });
+});
+
+// --------- Helpers ---------
 async function ensureAdmin() {
   const email = process.env.ADMIN_EMAIL;
   const pass = process.env.ADMIN_PASSWORD;
@@ -138,21 +138,18 @@ function auth(req, res, next) {
   next();
 }
 
-// Conectar por request y devolver 503 si DB no está
-app.use(async (_req, res, next) => {
+// --- Middleware de DB (se salta health/ping) ---
+app.use(async (req, res, next) => {
+  if (req.path === "/api/health" || req.path === "/api/ping") return next();
   try {
-    await dbConnect();
+    await withTimeout(dbConnect(), 4500, "DB_CONNECT_TIMEOUT");
     await ensureAdmin();
     next();
   } catch (e) {
     console.error("DB error:", e?.message || e);
+    LAST_DB_ERROR = e;
     return res.status(503).json({ error: "DB_UNAVAILABLE" });
   }
-});
-
-// ---- Healthcheck (útil para diagnosticar)
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: mongoose.connection?.readyState === 1, state: mongoose.connection?.readyState ?? 0 });
 });
 
 // ---- Auth
@@ -178,11 +175,7 @@ app.post("/api/admin/docentes", auth, async (req, res) => {
   if (!/^[0-9]{7,9}$/.test(dni) || !nombre) return res.status(400).json({ error: "Datos inválidos" });
   const existing = await Docente.findOne({ dni });
   if (existing) {
-    if (existing.nombre !== nombre) {
-      existing.nombre = nombre;
-      await existing.save();
-      return res.json({ ...existing.toObject(), updated: true });
-    }
+    if (existing.nombre !== nombre) { existing.nombre = nombre; await existing.save(); return res.json({ ...existing.toObject(), updated: true }); }
     return res.json({ ...existing.toObject(), alreadyExisted: true });
   }
   const created = await Docente.create({ dni, nombre });
@@ -212,24 +205,14 @@ app.get("/api/admin/resoluciones", auth, async (req, res) => {
 app.post("/api/admin/resoluciones", auth, async (req, res) => {
   const { docenteDni, titulo, driveUrl, expediente, nivel } = req.body || {};
   if (!titulo || !driveUrl) return res.status(400).json({ error: "Datos inválidos" });
-
   if (docenteDni) {
     const exists = await Docente.findOne({ dni: docenteDni });
     if (!exists) return res.status(404).json({ error: "Docente no existe" });
   }
   if (nivel && !NIVELES.includes(nivel)) return res.status(400).json({ error: "Nivel inválido" });
-
   const dup = await Resolucion.findOne({ titulo, driveUrl });
   if (dup) return res.json({ ...dup.toObject(), alreadyExisted: true });
-
-  const r = await Resolucion.create({
-    docenteDni: docenteDni || null,
-    titulo,
-    driveUrl,
-    expediente,
-    nivel,
-    creadoPor: req.user.email,
-  });
+  const r = await Resolucion.create({ docenteDni: docenteDni || null, titulo, driveUrl, expediente, nivel, creadoPor: req.user.email });
   res.status(201).json({ ...r.toObject(), created: true });
 });
 app.patch("/api/admin/resoluciones/:id", auth, async (req, res) => {
@@ -247,7 +230,7 @@ app.delete("/api/admin/resoluciones/:id", auth, async (req, res) => {
   res.json({ ok: true, deleted: true });
 });
 
-// ---- Vínculos (muchos-a-muchos)
+// ---- Vínculos
 app.post("/api/admin/vinculos", auth, async (req, res) => {
   const { resolucionId, dnis } = req.body || {};
   if (!resolucionId || !Array.isArray(dnis) || dnis.length === 0) return res.status(400).json({ error: "Datos inválidos" });
@@ -255,11 +238,9 @@ app.post("/api/admin/vinculos", auth, async (req, res) => {
   const docentes = await Docente.find({ dni: { $in: validDnis } }).lean();
   const existentes = new Set(docentes.map((d) => d.dni));
   const noEncontrados = validDnis.filter((d) => !existentes.has(d));
-  const ops = validDnis
-    .filter((d) => existentes.has(d))
-    .map((dni) => ({
-      updateOne: { filter: { docenteDni: dni, resolucionId }, update: { $setOnInsert: { docenteDni: dni, resolucionId } }, upsert: true },
-    }));
+  const ops = validDnis.filter((d) => existentes.has(d)).map((dni) => ({
+    updateOne: { filter: { docenteDni: dni, resolucionId }, update: { $setOnInsert: { docenteDni: dni, resolucionId } }, upsert: true },
+  }));
   if (ops.length) await Vinculo.bulkWrite(ops);
   res.json({ ok: true, vinculados: ops.length, ignorados: noEncontrados });
 });
@@ -274,7 +255,7 @@ app.delete("/api/admin/vinculos", auth, async (req, res) => {
   res.json({ ok: true, deleted: true });
 });
 
-// ---- Admin: listar acuses
+// ---- Admin: acuses
 app.get("/api/admin/acuses", auth, async (_req, res) => {
   const list = await Acuse.find().sort({ firmadoEn: -1 }).lean();
   res.json(list);
@@ -332,6 +313,6 @@ if (process.env.VERCEL !== "1") {
   app.listen(port, () => console.log("API on http://localhost:" + port));
 }
 
-// Runtime para Latest Build System (válidos: "nodejs", "edge")
+// Runtime para Latest Build System
 export const config = { runtime: "nodejs" };
 export default serverless(app);
