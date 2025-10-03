@@ -16,11 +16,24 @@ if (process.env.VERCEL !== "1") {
 }
 
 const MONGODB_URI = process.env.MONGODB_URI || "";
+
+// Conexión Mongo con timeout corto y reintentos controlados
 if (!global._mongoose) global._mongoose = { conn: null, promise: null };
 async function dbConnect() {
   if (global._mongoose.conn) return global._mongoose.conn;
+  if (!MONGODB_URI) throw new Error("MONGODB_URI not set");
   if (!global._mongoose.promise) {
-    global._mongoose.promise = mongoose.connect(MONGODB_URI).then((m) => m);
+    global._mongoose.promise = mongoose
+      .connect(MONGODB_URI, {
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 10000,
+      })
+      .then((m) => m)
+      .catch((err) => {
+        // liberar para reintento en el próximo request
+        global._mongoose.promise = null;
+        throw err;
+      });
   }
   global._mongoose.conn = await global._mongoose.promise;
   return global._mongoose.conn;
@@ -124,7 +137,23 @@ function auth(req, res, next) {
   }
   next();
 }
-app.use(async (_req, _res, next) => { await dbConnect(); await ensureAdmin(); next(); });
+
+// Conectar por request y devolver 503 si DB no está
+app.use(async (_req, res, next) => {
+  try {
+    await dbConnect();
+    await ensureAdmin();
+    next();
+  } catch (e) {
+    console.error("DB error:", e?.message || e);
+    return res.status(503).json({ error: "DB_UNAVAILABLE" });
+  }
+});
+
+// ---- Healthcheck (útil para diagnosticar)
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: mongoose.connection?.readyState === 1, state: mongoose.connection?.readyState ?? 0 });
+});
 
 // ---- Auth
 app.post("/api/auth/login", async (req, res) => {
@@ -149,7 +178,11 @@ app.post("/api/admin/docentes", auth, async (req, res) => {
   if (!/^[0-9]{7,9}$/.test(dni) || !nombre) return res.status(400).json({ error: "Datos inválidos" });
   const existing = await Docente.findOne({ dni });
   if (existing) {
-    if (existing.nombre !== nombre) { existing.nombre = nombre; await existing.save(); return res.json({ ...existing.toObject(), updated: true }); }
+    if (existing.nombre !== nombre) {
+      existing.nombre = nombre;
+      await existing.save();
+      return res.json({ ...existing.toObject(), updated: true });
+    }
     return res.json({ ...existing.toObject(), alreadyExisted: true });
   }
   const created = await Docente.create({ dni, nombre });
@@ -189,7 +222,14 @@ app.post("/api/admin/resoluciones", auth, async (req, res) => {
   const dup = await Resolucion.findOne({ titulo, driveUrl });
   if (dup) return res.json({ ...dup.toObject(), alreadyExisted: true });
 
-  const r = await Resolucion.create({ docenteDni: docenteDni || null, titulo, driveUrl, expediente, nivel, creadoPor: req.user.email });
+  const r = await Resolucion.create({
+    docenteDni: docenteDni || null,
+    titulo,
+    driveUrl,
+    expediente,
+    nivel,
+    creadoPor: req.user.email,
+  });
   res.status(201).json({ ...r.toObject(), created: true });
 });
 app.patch("/api/admin/resoluciones/:id", auth, async (req, res) => {
@@ -215,9 +255,11 @@ app.post("/api/admin/vinculos", auth, async (req, res) => {
   const docentes = await Docente.find({ dni: { $in: validDnis } }).lean();
   const existentes = new Set(docentes.map((d) => d.dni));
   const noEncontrados = validDnis.filter((d) => !existentes.has(d));
-  const ops = validDnis.filter((d) => existentes.has(d)).map((dni) => ({
-    updateOne: { filter: { docenteDni: dni, resolucionId }, update: { $setOnInsert: { docenteDni: dni, resolucionId } }, upsert: true },
-  }));
+  const ops = validDnis
+    .filter((d) => existentes.has(d))
+    .map((dni) => ({
+      updateOne: { filter: { docenteDni: dni, resolucionId }, update: { $setOnInsert: { docenteDni: dni, resolucionId } }, upsert: true },
+    }));
   if (ops.length) await Vinculo.bulkWrite(ops);
   res.json({ ok: true, vinculados: ops.length, ignorados: noEncontrados });
 });
@@ -232,54 +274,47 @@ app.delete("/api/admin/vinculos", auth, async (req, res) => {
   res.json({ ok: true, deleted: true });
 });
 
+// ---- Admin: listar acuses (FALTABA)
+app.get("/api/admin/acuses", auth, async (_req, res) => {
+  const list = await Acuse.find().sort({ firmadoEn: -1 }).lean();
+  res.json(list);
+});
+
 // ---- Pública
 app.get("/api/public/buscar", async (req, res) => {
   const dni = String(req.query.dni || "");
   if (!/^[0-9]{7,9}$/.test(dni)) return res.status(400).json({ error: "DNI inválido" });
 
-  const docente = await Docente.findOne({ dni });
+  try {
+    const docente = await Docente.findOne({ dni });
 
-  const directas = await Resolucion.find({ docenteDni: dni }).lean();
-  const vincs = await Vinculo.find({ docenteDni: dni }).lean();
-  const ids = vincs.map((v) => v.resolucionId);
-  const vinculadas = ids.length ? await Resolucion.find({ _id: { $in: ids } }).lean() : [];
+    const directas = await Resolucion.find({ docenteDni: dni }).lean();
+    const vincs = await Vinculo.find({ docenteDni: dni }).lean();
+    const ids = vincs.map((v) => v.resolucionId);
+    const vinculadas = ids.length ? await Resolucion.find({ _id: { $in: ids } }).lean() : [];
 
-  const all = [...directas, ...vinculadas];
-  const map = new Map(all.map((r) => [String(r._id), r]));
-  const resoluciones = Array.from(map.values()).sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+    const all = [...directas, ...vinculadas];
+    const map = new Map(all.map((r) => [String(r._id), r]));
+    const resoluciones = Array.from(map.values()).sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
 
-  // ---- NUEVO: marcar qué resoluciones ya tienen acuse para este DNI
-  const acuses = await Acuse.find({
-    docenteDni: dni,
-    resolucionId: { $in: resoluciones.map((r) => r._id) }
-  }).select({ resolucionId: 1 }).lean();
-  const yaIds = new Set(acuses.map(a => String(a.resolucionId)));
-  const resolucionesMarcadas = resoluciones.map(r => ({
-    ...r,
-    yaAcuso: yaIds.has(String(r._id))
-  }));
+    const acuses = await Acuse.find({
+      docenteDni: dni,
+      resolucionId: { $in: resoluciones.map((r) => r._id) },
+    })
+      .select({ resolucionId: 1 })
+      .lean();
 
-  res.json({ nombre: docente?.nombre || null, dni, resoluciones: resolucionesMarcadas });
-});
+    const yaIds = new Set(acuses.map((a) => String(a.resolucionId)));
+    const resolucionesMarcadas = resoluciones.map((r) => ({
+      ...r,
+      yaAcuso: yaIds.has(String(r._id)),
+    }));
 
-app.post("/api/public/acuse", async (req, res) => {
-  const { docenteDni, resolucionId, nombreCompleto, email, acepto, textoLegal } = req.body || {};
-  if (!/^[0-9]{7,9}$/.test(docenteDni) || !resolucionId || !nombreCompleto ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || acepto !== true || !textoLegal) {
-    return res.status(400).json({ error: "Datos inválidos" });
+    res.json({ nombre: docente?.nombre || null, dni, resoluciones: resolucionesMarcadas });
+  } catch (e) {
+    console.error("buscar error:", e?.message || e);
+    res.status(503).json({ error: "DB_UNAVAILABLE" });
   }
-  const resol = await Resolucion.findById(resolucionId);
-  if (!resol) return res.status(404).json({ error: "Resolución no encontrada" });
-
-  const ip = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim();
-  const ipHash = crypto.createHash("sha256").update(ip).digest("hex");
-
-  const acuse = await Acuse.create({
-    docenteDni, resolucionId, nombreCompleto, email, acepto: true, textoLegal,
-    ipHash, userAgent: req.headers["user-agent"] || ""
-  });
-
-  res.status(201).json({ ok: true, acuseId: acuse._id, driveUrl: resol.driveUrl });
 });
 
 // ---- Front local
@@ -287,7 +322,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 if (process.env.VERCEL !== "1") {
   app.use(express.static(path.resolve(__dirname, "..")));
-  app.get(/^(?!\/api).*/, (_req, res) => { res.sendFile(path.resolve(__dirname, "..", "index.html")); });
+  app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(path.resolve(__dirname, "..", "index.html"));
+  });
 }
 
 if (process.env.VERCEL !== "1") {
@@ -295,4 +332,6 @@ if (process.env.VERCEL !== "1") {
   app.listen(port, () => console.log("API on http://localhost:" + port));
 }
 
+// Runtime Node 18 para Latest Build System
+export const config = { runtime: "nodejs18.x" };
 export default serverless(app);
