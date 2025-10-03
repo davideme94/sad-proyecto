@@ -9,6 +9,7 @@ import rateLimit from "express-rate-limit";
 import serverless from "serverless-http";
 import path from "path";
 import { fileURLToPath } from "url";
+import cors from "cors";
 
 if (process.env.VERCEL !== "1") {
   const { config } = await import("dotenv");
@@ -77,6 +78,18 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.use(helmet({ contentSecurityPolicy: process.env.VERCEL === "1" ? undefined : false }));
 app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true }));
+
+// CORS: permitir al Static Site de Render (puedes pasar varios separados por coma)
+const ALLOW_ORIGIN = (process.env.CORS_ORIGIN || "").split(",").map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || !ALLOW_ORIGIN.length || ALLOW_ORIGIN.includes(origin)) return cb(null, true);
+    return cb(new Error("CORS bloqueado"), false);
+  },
+  methods: ["GET","POST","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization","Accept"],
+  maxAge: 86400,
+}));
 
 // --- ENDPOINTS sin DB (antes del middleware) ---
 app.get(["/api/ping", "/ping"], (_req, res) => res.json({ ok: true, ts: Date.now() }));
@@ -247,7 +260,7 @@ app.get("/api/admin/acuses", auth, async (_req, res) => {
   res.json(list);
 });
 
-// ---- Pública
+// ---- Pública: buscar
 app.get("/api/public/buscar", async (req, res) => {
   const dni = String(req.query.dni || "");
   if (!/^[0-9]{7,9}$/.test(dni)) return res.status(400).json({ error: "DNI inválido" });
@@ -279,6 +292,27 @@ app.get("/api/public/buscar", async (req, res) => {
   } catch (e) {
     console.error("buscar error:", e?.message || e);
     res.status(503).json({ error: "DB_UNAVAILABLE" });
+  }
+});
+
+// ---- Pública: registrar acuse y devolver URL
+app.post("/api/public/acuse", async (req, res) => {
+  const { docenteDni, resolucionId, nombreCompleto, email, acepto, textoLegal } = req.body || {};
+  if (!/^[0-9]{7,9}$/.test(String(docenteDni || ""))) return res.status(400).json({ error: "DNI inválido" });
+  if (!resolucionId || !nombreCompleto || !email || !acepto) return res.status(400).json({ error: "Datos inválidos" });
+  try {
+    const r = await Resolucion.findById(resolucionId).lean();
+    if (!r) return res.status(404).json({ error: "Resolución no encontrada" });
+    const ip = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").toString();
+    const ipHash = crypto.createHash("sha256").update(ip).digest("hex");
+    await Acuse.create({
+      docenteDni, resolucionId, nombreCompleto, email, acepto: !!acepto, textoLegal: textoLegal || "",
+      ipHash, userAgent: req.headers["user-agent"] || ""
+    });
+    return res.json({ ok: true, driveUrl: r.driveUrl });
+  } catch (e) {
+    console.error("acuse error:", e?.message || e);
+    return res.status(503).json({ error: "DB_UNAVAILABLE" });
   }
 });
 

@@ -5,6 +5,9 @@ const $ = (id) => document.getElementById(id);
 const toggle = (el, visible, display = "") => (el.style.display = visible ? display : "none");
 const saveToken = (t) => (TOKEN = t, t ? localStorage.setItem("TOKEN", t) : localStorage.removeItem("TOKEN"));
 
+// Misma-origin: rutas relativas (no hace falta api-base)
+const api = (p) => p;
+
 function toast(msg, type = "ok") {
   const wrap = $("toasts"); const div = document.createElement("div");
   div.className = `toast ${type}`; div.textContent = msg; wrap.appendChild(div);
@@ -48,7 +51,7 @@ window.registrarYDescargar = async function (dni, resolucionId) {
   if (!nom || !email || !acepto) return toast("Completá nombre, email y aceptación", "err");
   const textoLegal = "La sola descarga del archivo dará por cumplida la notificación.";
   try {
-    const data = await httpJson(`/api/public/acuse`, {
+    const data = await httpJson(api(`/api/public/acuse`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ docenteDni: dni, resolucionId, nombreCompleto: nom, email, acepto: true, textoLegal })
@@ -75,7 +78,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!/^[0-9]{7,9}$/.test(dni || "")) { out.innerHTML = '<p class="danger">DNI inválido</p>'; return; }
     out.innerHTML = '<p class="muted">Buscando…</p>';
     try {
-      const data = await httpJson(`/api/public/buscar?dni=${encodeURIComponent(dni)}`);
+      const data = await httpJson(api(`/api/public/buscar?dni=${encodeURIComponent(dni)}`));
       const nombre = data.nombre ? `Nombre: <b>${data.nombre}</b>` : '<span class="danger">No se encontró ninguna persona con ese DNI</span>';
       if (!data.resoluciones?.length) { out.innerHTML = `<p>${nombre}</p>`; return; }
       out.innerHTML = `
@@ -119,7 +122,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const email = emailIn?.value.trim(), password = passIn?.value;
     if (!email || !password) { errorBox.textContent="Completá email y contraseña"; toggle(errorBox,true); return; }
     try {
-      const data = await httpJson(`/api/auth/login`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ email, password }) });
+      const data = await httpJson(api(`/api/auth/login`), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ email, password }) });
       if (data.token) { saveToken(data.token); setAuthUI(data.email || "administrador"); toggle(modal,false); toast("Sesión iniciada ✅"); }
       else { errorBox.textContent = data.error || "Credenciales inválidas"; toggle(errorBox, true); }
     } catch (e) { errorBox.textContent = e.message || "Error de red"; toggle(errorBox, true); }
@@ -131,7 +134,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const dni = $("docDni")?.value.trim(), nombre = $("docNombre")?.value.trim();
     if (!/^[0-9]{7,9}$/.test(dni || "") || !nombre) return toast("Datos inválidos", "err");
     try {
-      const data = await httpJson(`/api/admin/docentes`, { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ dni, nombre }) });
+      const data = await httpJson(api(`/api/admin/docentes`), { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ dni, nombre }) });
       const s = $("statusDoc");
       if (data.alreadyExisted) { s.textContent="Ya creado"; s.className="ok"; toast("Docente ya existía ✅"); return; }
       if (data.updated)      { s.textContent="Actualizado"; s.className="ok"; toast("Docente actualizado ✅"); return; }
@@ -143,7 +146,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   $("btnListDoc")?.addEventListener("click", async () => {
     const q = prompt("Buscar (opcional: nombre o DNI):", "") || "";
-    const list = await httpJson(`/api/admin/docentes?q=${encodeURIComponent(q)}`, { headers:{ Authorization:`Bearer ${TOKEN}` }});
+    const list = await httpJson(api(`/api/admin/docentes?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
     const c = $("adminLista"); if (!c) return;
     c.innerHTML = `<h4>Docentes (${list.length})</h4>` + list.map(d => `
       <div class="list-item">
@@ -157,7 +160,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   window.editarDoc = (dni,nombre)=>{ $("docDni").value=dni; $("docNombre").value=nombre; };
   window.borrarDoc = async (dni)=>{ if(!confirm(`Borrar docente DNI ${dni}?`))return;
-    const data = await httpJson(`/api/admin/docentes/${dni}`, { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
+    const data = await httpJson(api(`/api/admin/docentes/${dni}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
     if (data.ok) { toast("Docente borrado ✅"); $("btnListDoc").click(); } else toast(data.error||"Error","err"); };
 
   // ------- Admin: Resoluciones -------
@@ -166,7 +169,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const expediente = $("expediente")?.value.trim() || null; const nivel = $("nivel")?.value || null;
     if (!titulo || !driveUrl) return toast("Completá título y URL", "err");
     try {
-      const data = await httpJson(`/api/admin/resoluciones`, { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ titulo, driveUrl, expediente, nivel }) });
+      const data = await httpJson(api(`/api/admin/resoluciones`), { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ titulo, driveUrl, expediente, nivel }) });
       const s = $("statusRes");
       if (data.alreadyExisted) { s.textContent="Ya creada"; s.className="ok"; toast("Resolución ya existía ✅"); return; }
       if (data.created || data._id) { s.textContent="Creada"; s.className="ok"; toast("Resolución creada ✅"); return; }
@@ -176,7 +179,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   $("btnListRes")?.addEventListener("click", async () => {
     const q = prompt("Buscar (opcional: título):", "") || "";
-    const list = await httpJson(`/api/admin/resoluciones?q=${encodeURIComponent(q)}`, { headers:{ Authorization:`Bearer ${TOKEN}` }});
+    const list = await httpJson(api(`/api/admin/resoluciones?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
     const c = $("adminLista"); if (!c) return;
     c.innerHTML = `<h4>Resoluciones (${list.length})</h4>` + list.map(r => `
       <div class="list-item">
@@ -192,16 +195,16 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   window.prefillRes = (id,titulo,driveUrl,expediente,nivel)=>{ $("titulo").value=titulo; $("driveUrl").value=driveUrl; $("expediente").value=expediente||""; $("nivel").value=nivel||""; $("resBuscar").value=titulo; setResSeleccion(id,titulo); toast("Formulario cargado para editar/vincular"); };
   window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus vínculos?"))return;
-    const data = await httpJson(`/api/admin/resoluciones/${id}`, { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
+    const data = await httpJson(api(`/api/admin/resoluciones/${id}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
     if (data.ok) { toast("Resolución borrada ✅"); $("btnListRes").click(); } else toast(data.error||"Error","err"); };
 
   // ===============================
-  // Autocompletar: Resolución (título)
+  // Autocompletar: Resolución
   // ===============================
   let RES_CACHE = [];
   async function ensureResCache() {
     if (RES_CACHE.length) return;
-    RES_CACHE = await httpJson(`/api/admin/resoluciones`, { headers:{ Authorization:`Bearer ${TOKEN}` }});
+    RES_CACHE = await httpJson(api(`/api/admin/resoluciones`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
   }
   const resSug = $("resSug"), resBuscar = $("resBuscar"), resSel = $("resSel");
   function setResSeleccion(id, titulo) {
@@ -217,13 +220,15 @@ window.addEventListener("DOMContentLoaded", () => {
   let RES_VIEW = [];
   let resActive = -1;
 
-  resBuscar?.addEventListener("input", debounce(async () => {
+  const debounceFn = (fn, ms=200) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
+
+  resBuscar?.addEventListener("input", debounceFn(async () => {
     await ensureResCache();
     const q = (resBuscar.value || "").toLowerCase().trim();
     RES_VIEW = RES_CACHE.filter(r => r.titulo.toLowerCase().includes(q)).slice(0, 10);
     resActive = -1;
     resRenderSugs(RES_VIEW);
-  }, 200));
+  }));
 
   function resSetActive(newIdx){
     const items = resSug.querySelectorAll(".sugs-item");
@@ -262,7 +267,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // ===============================
-  // Autocompletar: Docentes (nombre)
+  // Autocompletar: Docentes
   // ===============================
   const docSug = $("docSug"), docBuscar = $("docBuscar"), docSel = $("docSel");
   let DOC_TIMER=null;
@@ -299,7 +304,7 @@ window.addEventListener("DOMContentLoaded", () => {
     clearTimeout(DOC_TIMER);
     DOC_TIMER = setTimeout(async ()=>{
       const q = (docBuscar.value||"").trim(); if (!q) { toggle(docSug,false); DOC_VIEW=[]; docActive=-1; return; }
-      DOC_VIEW = await httpJson(`/api/admin/docentes?q=${encodeURIComponent(q)}`, { headers:{ Authorization:`Bearer ${TOKEN}` }});
+      DOC_VIEW = await httpJson(api(`/api/admin/docentes?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
       DOC_VIEW = DOC_VIEW.slice(0,10);
       docActive = -1;
       docRenderSugs(DOC_VIEW);
@@ -334,14 +339,14 @@ window.addEventListener("DOMContentLoaded", () => {
     const dnis = Array.from($("docSel").querySelectorAll(".chip")).map(x=>x.dataset.dni);
     if (!resolucionId) return toast("Elegí una resolución", "err");
     if (!dnis.length) return toast("Agregá al menos un docente", "err");
-    const data = await httpJson(`/api/admin/vinculos`, { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ resolucionId, dnis }) });
+    const data = await httpJson(api(`/api/admin/vinculos`), { method:"POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ resolucionId, dnis }) });
     if (data.ok) toast(`Vinculados: ${data.vinculados} • Ignorados: ${data.ignorados?.length||0}`); else toast(data.error||"Error","err");
   });
 
   $("btnVerVinculos")?.addEventListener("click", async ()=>{
     const id = $("resSel").dataset.id || "";
     if (!id) return toast("Primero elegí una resolución", "err");
-    const list = await httpJson(`/api/admin/vinculos/${id}`, { headers:{ Authorization:`Bearer ${TOKEN}` }});
+    const list = await httpJson(api(`/api/admin/vinculos/${id}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
     const c = $("adminLista"); if (!c) return;
     c.innerHTML = `<h4>Vínculos (${list.length})</h4>` + list.map(v => `
       <div class="list-item">
@@ -354,20 +359,19 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   window.verVinculos = (id)=>{ setResSeleccion(id, $("resBuscar").value || "Resolución"); $("btnVerVinculos").click(); };
   window.desvincular = async (resolucionId, docenteDni) => {
-    const data = await httpJson(`/api/admin/vinculos`, { method:"DELETE", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ resolucionId, docenteDni }) });
+    const data = await httpJson(api(`/api/admin/vinculos`), { method:"DELETE", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ resolucionId, docenteDni }) });
     if (data.ok) { toast("Vínculo eliminado"); $("btnVerVinculos").click(); } else toast(data.error||"Error","err");
   };
 
   // ------- Acuses -------
   $("btnListAcuses")?.addEventListener("click", async () => {
-    const list = await httpJson(`/api/admin/acuses`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const list = await httpJson(api(`/api/admin/acuses`), { headers: { Authorization: `Bearer ${TOKEN}` } });
     const c = $("adminLista"); if (!c) return;
     c.innerHTML = `<h4>Acuses (${list.length})</h4>` + list.map(a =>
       `<div class="list-item">✅ ${new Date(a.firmadoEn).toLocaleString()} — DNI ${a.docenteDni} — <b>${a.nombreCompleto}</b> — ${a.email} — Res: <code>${a.resolucionId}</code></div>`
     ).join("");
   });
 
-  // Estado inicial si ya hay token
   const t = localStorage.getItem("TOKEN");
   if (t) { TOKEN = t; setAuthUI("administrador"); }
 });

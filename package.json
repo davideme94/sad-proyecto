@@ -3,14 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Front + API serverless (Vercel) con Mongo Atlas",
+  "description": "Front + API (Express + Mongo Atlas) desplegado como un único Web Service en Render",
   "scripts": {
-    "dev": "vercel dev",
-    "start": "node api/index.js"
+    "start": "node api/index.js",
+    "dev": "node api/index.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
@@ -19,10 +18,7 @@
     "mongoose": "^8.19.0",
     "serverless-http": "^3.2.0"
   },
-  "devDependencies": {
-    "vercel": "^41.0.0"
-  },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }
