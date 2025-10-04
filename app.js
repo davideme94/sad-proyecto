@@ -355,8 +355,8 @@ window.addEventListener("DOMContentLoaded", () => {
       const s = $("statusDoc");
       if (data.alreadyExisted) { s.textContent="Ya creado"; s.className="ok"; toast("Docente ya existía ✅"); return; }
       if (data.updated)      { s.textContent="Actualizado"; s.className="ok"; toast("Docente actualizado ✅"); return; }
-      if (data.created)      { s.textContent="Creado";     s.className="ok"; toast("Docente creado ✅"); return; }
-      if (data._id)          { s.textContent="Guardado";   s.className="ok"; toast("Docente guardado ✅"); return; }
+      if (data.created)      { s.textContent="Creado"; s.className="ok"; toast("Docente creado ✅"); return; }
+      if (data._id)          { s.textContent="Guardado"; s.className="ok"; toast("Docente guardado ✅"); return; }
       s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err");
     } catch (e) { toast(e.message || "Error", "err"); }
   });
@@ -650,6 +650,17 @@ window.addEventListener("DOMContentLoaded", () => {
       `<div class="list-item">✅ ${new Date(a.firmadoEn).toLocaleString()} — DNI ${a.docenteDni} — <b>${a.nombreCompleto}</b> — ${a.email} — Res: <code>${a.resolucionId}</code></div>`
     ).join("");
   });
+
+  // ------- Carga masiva: LISTENERS CLAVE -------
+  $("btnMassPreview")?.addEventListener("click", () => {
+    BULK_ROWS = parseBulkInputs();
+    renderBulkTable();
+    const ok = BULK_ROWS.filter(r=>r.ok).length;
+    if (!BULK_ROWS.length) toast("No se detectaron filas", "err");
+    else if (ok) toast(`Detectados ${BULK_ROWS.length}. Válidos: ${ok}`, "ok");
+    else toast("Filas inválidas", "err");
+  });
+  $("btnMassSave")?.addEventListener("click", bulkGuardar);
 
   // Estado inicial
   const t = localStorage.getItem("TOKEN");
