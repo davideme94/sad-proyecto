@@ -55,7 +55,7 @@
             <button id="btnListDoc" class="btn-plain">Ver docentes</button>
           </div>
 
-          <!-- CARGA MASIVA (dos columnas con vista previa y guardado) -->
+          <!-- CARGA MASIVA DOCENTES -->
           <h4 class="section-title">Carga masiva de docentes (dos columnas con vista previa)</h4>
           <div class="grid-3">
             <div>
@@ -89,7 +89,7 @@ LOPEZ MARIA"></textarea>
             <input id="titulo" placeholder="Título/Descripción" />
             <input id="driveUrl" placeholder="URL pública de Google (Drive/Docs)" />
             <input id="expediente" placeholder="Expediente (opcional)" />
-            <input id="numero" placeholder="N° de resolución (opcional)" /> <!-- NUEVO -->
+            <input id="numero" placeholder="N° de resolución (opcional)" />
             <select id="nivel" aria-label="Nivel">
               <option value="">Nivel (opcional)</option>
               <option>INICIAL</option>
@@ -109,7 +109,7 @@ LOPEZ MARIA"></textarea>
             <button id="btnListAcuses" class="btn-plain">Ver acuses</button>
           </div>
 
-          <!-- VINCULAR (autocompletar resolución + chips de docentes) -->
+          <!-- VINCULAR (autocomplete + chips) -->
           <h4 class="section-title">Vincular resolución a docentes (muchos a muchos)</h4>
           <div class="grid-3">
             <div class="sugs">
@@ -128,6 +128,29 @@ LOPEZ MARIA"></textarea>
             </div>
           </div>
 
+          <!-- NUEVO: Vincular por lista de DNIs -->
+          <h4 class="section-title">Vincular por lista de DNIs</h4>
+          <div class="grid-3">
+            <div>
+              <div class="muted" style="margin-bottom:6px">Pegá DNIs — uno por línea</div>
+              <textarea id="dnilist" rows="8" placeholder="Ej:
+17142116
+23456789
+30123456"></textarea>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px">Acciones</div>
+              <div class="actions" style="flex-direction:column; align-items:flex-start">
+                <button id="btnDniPreview">Previsualizar DNIs</button>
+                <button id="btnDniVincular" class="btn-plain" disabled>Vincular lista</button>
+              </div>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:6px">Vista previa</div>
+              <div id="dniPreview"></div>
+            </div>
+          </div>
+
           <!-- LISTAS dinámicas -->
           <div id="adminLista" style="margin-top:12px"></div>
         </div>
@@ -135,7 +158,7 @@ LOPEZ MARIA"></textarea>
     </div>
   </main>
 
-  <!-- FooterBar con leyenda -->
+  <!-- FooterBar -->
   <div class="footerBar" role="contentinfo">
     <div class="footerBar-msg">
       Por omisiones/errores o cualquier consulta, puede mandar un email a

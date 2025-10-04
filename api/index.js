@@ -161,10 +161,24 @@ app.post("/api/auth/login", async (req, res) => {
 // ---- Docentes CRUD + búsqueda
 app.get("/api/admin/docentes", auth, async (req, res) => {
   const q = (req.query.q || "").toString().trim();
-  const filter = q ? { $or: [{ dni: new RegExp(q, "i") }, { nombre: new RegExp(q, "i") }] } : {};
+  const dnisParam = (req.query.dnis || "").toString().trim();
+
+  let filter = {};
+  if (dnisParam) {
+    // nuevo: permitir consulta por lista de DNIs para previsualizar vínculos masivos
+    const list = dnisParam
+      .split(",")
+      .map(s => s.trim())
+      .filter(s => /^[0-9]{7,9}$/.test(s));
+    filter = list.length ? { dni: { $in: list } } : { _id: null };
+  } else if (q) {
+    filter = { $or: [{ dni: new RegExp(q, "i") }, { nombre: new RegExp(q, "i") }] };
+  }
+
   const list = await Docente.find(filter).sort({ nombre: 1 }).lean();
   res.json(list);
 });
+
 app.post("/api/admin/docentes", auth, async (req, res) => {
   const { dni, nombre } = req.body || {};
   if (!/^[0-9]{7,9}$/.test(dni) || !nombre) return res.status(400).json({ error: "Datos inválidos" });

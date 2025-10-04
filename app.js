@@ -4,15 +4,19 @@ let TOKEN = null;
 const $ = (id) => document.getElementById(id);
 const toggle = (el, visible, display = "") => (el && (el.style.display = visible ? display : "none"));
 const saveToken = (t) => (TOKEN = t, t ? localStorage.setItem("TOKEN", t) : localStorage.removeItem("TOKEN"));
-
-// Misma-origin: rutas relativas (no hace falta api-base)
 const api = (p) => p;
 
 function toast(msg, type = "ok") {
   const wrap = $("toasts"); if (!wrap) return alert(msg);
   const div = document.createElement("div");
-  div.className = `toast ${type}`; div.textContent = msg; wrap.appendChild(div);
-  setTimeout(() => { div.style.opacity = "0"; div.style.transform = "translateY(-6px)"; setTimeout(() => wrap.removeChild(div), 300); }, 2200);
+  div.className = `toast ${type}`;
+  div.textContent = msg;
+  wrap.appendChild(div);
+  setTimeout(() => {
+    div.style.opacity = "0";
+    div.style.transform = "translateY(-6px)";
+    setTimeout(() => wrap.removeChild(div), 300);
+  }, 2200);
 }
 
 function setAuthUI(email) {
@@ -22,24 +26,21 @@ function setAuthUI(email) {
   toggle($("adminPanel"), !!email);
 }
 
-const debounce = (fn, ms=250) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
-
-// Utilidad: fetch con timeout y manejo de errores
+// -------- fetch helper --------
 async function httpJson(url, opts = {}, timeoutMs = 10000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...opts, signal: controller.signal, headers: { Accept: "application/json", ...(opts.headers || {}) } });
+    const res = await fetch(url, {
+      ...opts,
+      signal: controller.signal,
+      headers: { Accept: "application/json", ...(opts.headers || {}) }
+    });
     clearTimeout(id);
     if (!res.ok) {
       let msg = `Error ${res.status}`;
-      try {
-        const data = await res.json();
-        if (data?.error) msg = data.error;
-      } catch {}
-      const err = new Error(msg);
-      err.status = res.status;
-      throw err;
+      try { const data = await res.json(); if (data?.error) msg = data.error; } catch {}
+      const err = new Error(msg); err.status = res.status; throw err;
     }
     return await res.json();
   } catch (e) {
@@ -63,7 +64,8 @@ window.registrarYDescargar = async function (dni, resolucionId) {
       body: JSON.stringify({ docenteDni: dni, resolucionId, nombreCompleto: nom, email, acepto: true, textoLegal })
     });
     if (data.ok && data.driveUrl) {
-      window.open(data.driveUrl, "_blank", "noopener"); toast("Descargo registrado ✅");
+      window.open(data.driveUrl, "_blank", "noopener");
+      toast("Descargo registrado ✅");
     } else {
       toast(data.error || "Error al registrar", "err");
     }
@@ -78,27 +80,17 @@ window.descargarDirecto = function (url) {
 };
 
 // ===============================
-// CARGA MASIVA: estado y helpers
+// CARGA MASIVA DOCENTES (existente)
 // ===============================
 let BULK_ROWS = []; // { nombre, dni, ok, reason }
+function normName(s){ return (s||"").replace(/\s+/g," ").replace(/\t/g," ").trim(); }
+function normDni(s){ return String(s||"").replace(/\D+/g,""); }
 
-function normName(s) {
-  if (!s) return "";
-  // colapsar espacios, quitar tabulaciones, trim (sirve para pegados con tabs)
-  return s.replace(/\s+/g, " ").replace(/\t/g, " ").trim();
-}
-function normDni(s) {
-  if (!s) return "";
-  const digits = String(s).replace(/\D+/g, ""); // solo dígitos
-  return digits;
-}
 function parseBulkInputs() {
   const rawNames = $("massNames")?.value || "";
   const rawDnis  = $("massDnis")?.value  || "";
-
-  const names = rawNames.split(/\r?\n/).map(normName).filter(x => x.length > 0);
-  const dnis  = rawDnis .split(/\r?\n/).map(normDni) .filter(x => x.length > 0);
-
+  const names = rawNames.split(/\r?\n/).map(normName).filter(Boolean);
+  const dnis  = rawDnis .split(/\r?\n/).map(normDni ).filter(Boolean);
   const max = Math.max(names.length, dnis.length);
   const rows = [];
   for (let i = 0; i < max; i++) {
@@ -111,11 +103,11 @@ function parseBulkInputs() {
   }
   return rows;
 }
+
 function renderBulkTable() {
   const host   = $("massPreview"); if (!host) return;
   const status = $("massStatus");
   const saveBt = $("btnMassSave");
-
   const valid = BULK_ROWS.filter(r => r.ok).length;
   const invalid = BULK_ROWS.length - valid;
 
@@ -206,8 +198,93 @@ async function bulkGuardar() {
 }
 
 // ===============================
+// NUEVO: Vincular por lista de DNIs
+// ===============================
+let VINC_DNI_ROWS = []; // { dni, ok, reason, nombre|null, existe }
+function parseDniList() {
+  const raw = $("dnilist")?.value || "";
+  const lines = raw.split(/\r?\n/).map(normDni).filter(Boolean);
+  const uniq = Array.from(new Set(lines));
+  return uniq.map(dni => {
+    const ok = /^[0-9]{7,9}$/.test(dni);
+    return { dni, ok, reason: ok ? "" : "DNI inválido", nombre: null, existe: false };
+  });
+}
+
+async function enrichDniRows(rows) {
+  const valid = rows.filter(r => r.ok).map(r => r.dni);
+  if (!valid.length) return rows;
+  // pedir nombres en una sola llamada
+  const found = await httpJson(api(`/api/admin/docentes?dnis=${encodeURIComponent(valid.join(","))}`), {
+    headers: { Authorization: `Bearer ${TOKEN}` }
+  });
+  const map = new Map(found.map(d => [d.dni, d.nombre]));
+  return rows.map(r => {
+    if (!r.ok) return r;
+    if (map.has(r.dni)) return { ...r, existe: true, nombre: map.get(r.dni) };
+    return { ...r, existe: false, reason: "No encontrado en docentes" };
+  });
+}
+
+function renderVincDniPreview() {
+  const host = $("dniPreview"); if (!host) return;
+  if (!VINC_DNI_ROWS.length) { host.innerHTML = ""; $("btnDniVincular").disabled = true; return; }
+
+  const validYExist = VINC_DNI_ROWS.filter(r => r.ok && r.existe).length;
+  const invalid = VINC_DNI_ROWS.length - validYExist;
+
+  const rowsHtml = VINC_DNI_ROWS.map((r, i) => `
+    <tr style="${r.ok && r.existe ? "" : "background:#fff1f1"}">
+      <td style="text-align:center">${i+1}</td>
+      <td><code>${r.dni}</code></td>
+      <td>${r.nombre ? r.nombre.replace(/</g,"&lt;") : "<i>—</i>"}</td>
+      <td>${r.ok && r.existe ? "<span class='ok'>OK</span>" : `<span class='danger'>${r.reason || "—"}</span>`}</td>
+      <td style="text-align:right"><button class="btn-plain" onclick="rmVincDni(${i})">Quitar</button></td>
+    </tr>
+  `).join("");
+
+  host.innerHTML = `
+    <div class="list-item" style="overflow:auto">
+      <div class="muted" style="margin-bottom:6px">DNIs: ${VINC_DNI_ROWS.length} • Válidos/encontrados: ${validYExist} • Otros: ${invalid}</div>
+      <table style="width:100%; border-collapse:collapse">
+        <thead>
+          <tr>
+            <th>#</th><th>DNI</th><th>Nombre</th><th>Estado</th><th style="text-align:right">Acción</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+  $("btnDniVincular").disabled = validYExist === 0;
+}
+window.rmVincDni = (idx) => { VINC_DNI_ROWS.splice(idx,1); renderVincDniPreview(); };
+
+async function doVincularDniList() {
+  const resolucionId = $("resSel")?.dataset.id || "";
+  if (!resolucionId) return toast("Elegí una resolución (arriba) antes de vincular", "err");
+  const dnis = VINC_DNI_ROWS.filter(r => r.ok && r.existe).map(r => r.dni);
+  if (!dnis.length) return toast("No hay DNIs válidos/encontrados para vincular", "err");
+
+  const data = await httpJson(api(`/api/admin/vinculos`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+    body: JSON.stringify({ resolucionId, dnis })
+  });
+  if (data.ok) {
+    toast(`Vinculados: ${data.vinculados} • Ignorados: ${data.ignorados?.length||0}`);
+    // limpiar lista
+    VINC_DNI_ROWS = [];
+    const ta = $("dnilist"); if (ta) ta.value = "";
+    renderVincDniPreview();
+  } else {
+    toast(data.error || "Error", "err");
+  }
+}
+
+// ===============================
 window.addEventListener("DOMContentLoaded", () => {
-  // ------- Buscar por DNI -------
+  // ------- Buscar por DNI (público) -------
   $("btnBuscar")?.addEventListener("click", async () => {
     const dni = $("dni")?.value.trim(); const out = $("resultado"); if (!out) return;
     if (!/^[0-9]{7,9}$/.test(dni || "")) { out.innerHTML = '<p class="danger">DNI inválido</p>'; return; }
@@ -264,12 +341,10 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   $("btnLogout")?.addEventListener("click", () => { saveToken(null); setAuthUI(null); toast("Sesión cerrada"); });
 
-  // ------- Admin: Docentes (individual) -------
+  // ------- Admin: Docentes -------
   $("btnGuardarDoc")?.addEventListener("click", async () => {
-    const dniInput = $("docDni")?.value ?? "";
-    const nombreInput = $("docNombre")?.value ?? "";
-    const dni = dniInput.replace(/\D+/g, "");
-    const nombre = nombreInput.replace(/\s+/g, " ").trim();
+    const dni = ($("docDni")?.value ?? "").replace(/\D+/g, "");
+    const nombre = ($("docNombre")?.value ?? "").replace(/\s+/g, " ").trim();
     if (!/^[0-9]{7,9}$/.test(dni) || !nombre) { return toast("Datos inválidos (DNI 7–9 dígitos y nombre no vacío)", "err"); }
     try {
       const data = await httpJson(api(`/api/admin/docentes`), {
@@ -305,97 +380,90 @@ window.addEventListener("DOMContentLoaded", () => {
     const data = await httpJson(api(`/api/admin/docentes/${dni}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
     if (data.ok) { toast("Docente borrado ✅"); $("btnListDoc").click(); } else toast(data.error||"Error","err"); };
 
-  // ------- Admin: Resoluciones -------
-$("btnCrearRes")?.addEventListener("click", async () => {
-  const titulo    = $("titulo")?.value.trim();
-  const driveUrl  = $("driveUrl")?.value.trim();
-  const expediente= $("expediente")?.value.trim() || null;
-  const numero    = $("numero")?.value?.trim() || null; // NUEVO (si existe el input)
-  const nivel     = $("nivel")?.value || null;
+  // ------- Admin: Resoluciones (crear/editar) -------
+  $("btnCrearRes")?.addEventListener("click", async () => {
+    const titulo    = $("titulo")?.value.trim();
+    const driveUrl  = $("driveUrl")?.value.trim();
+    const expediente= $("expediente")?.value.trim() || null;
+    const numero    = $("numero")?.value?.trim() || null;
+    const nivel     = $("nivel")?.value || null;
+    if (!titulo || !driveUrl) return toast("Completá título y URL", "err");
 
-  if (!titulo || !driveUrl) return toast("Completá título y URL", "err");
-
-  // Si hay una resolución seleccionada por “Editar” => actualizar (PATCH)
-  const selectedId = $("resSel")?.dataset.id || "";
-
-  try {
-    if (selectedId) {
-      const data = await httpJson(api(`/api/admin/resoluciones/${selectedId}`), {
-        method: "PATCH",
-        headers: { "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
-        body: JSON.stringify({ titulo, driveUrl, expediente, numero, nivel })
-      });
-      $("statusRes").textContent = "Actualizada";
-      $("statusRes").className = "ok";
-      toast("Resolución actualizada ✅");
-
-      // limpiar selección y volver el botón a “Crear”
-      const chip = $("resSel");
-      if (chip) { chip.style.display = "none"; chip.dataset.id = ""; chip.textContent = ""; }
-      const btn = $("btnCrearRes"); if (btn) btn.textContent = "Crear";
-    } else {
-      const data = await httpJson(api(`/api/admin/resoluciones`), {
-        method:"POST",
-        headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
-        body: JSON.stringify({ titulo, driveUrl, expediente, numero, nivel })
-      });
-      const s = $("statusRes");
-      if (data.alreadyExisted) { s.textContent="Ya creada"; s.className="ok"; toast("Resolución ya existía ✅"); }
-      else if (data.created || data._id) { s.textContent="Creada"; s.className="ok"; toast("Resolución creada ✅"); }
-      else { s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err"); }
+    const selectedId = $("resSel")?.dataset.id || "";
+    try {
+      if (selectedId) {
+        await httpJson(api(`/api/admin/resoluciones/${selectedId}`), {
+          method: "PATCH",
+          headers: { "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
+          body: JSON.stringify({ titulo, driveUrl, expediente, numero, nivel })
+        });
+        $("statusRes").textContent = "Actualizada";
+        $("statusRes").className = "ok";
+        toast("Resolución actualizada ✅");
+        const chip = $("resSel");
+        if (chip) { chip.style.display = "none"; chip.dataset.id = ""; chip.textContent = ""; }
+        const btn = $("btnCrearRes"); if (btn) btn.textContent = "Crear";
+      } else {
+        const data = await httpJson(api(`/api/admin/resoluciones`), {
+          method:"POST",
+          headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` },
+          body: JSON.stringify({ titulo, driveUrl, expediente, numero, nivel })
+        });
+        const s = $("statusRes");
+        if (data.alreadyExisted) { s.textContent="Ya creada"; s.className="ok"; toast("Resolución ya existía ✅"); }
+        else if (data.created || data._id) { s.textContent="Creada"; s.className="ok"; toast("Resolución creada ✅"); }
+        else { s.textContent = data.error || "Error"; s.className="danger"; toast(data.error || "Error", "err"); }
+      }
+    } catch (e) {
+      toast(e.message || "Error", "err");
     }
-  } catch (e) {
-    toast(e.message || "Error", "err");
-  }
-});
+  });
 
-$("btnListRes")?.addEventListener("click", async () => {
-  const q = prompt("Buscar (opcional: título):", "") || "";
-  const list = await httpJson(api(`/api/admin/resoluciones?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
-  const c = $("adminLista"); if (!c) return;
-  c.innerHTML = `<h4>Resoluciones (${list.length})</h4>` + list.map(r => `
-    <div class="list-item">
-      <div><b>${r.titulo}</b></div>
-      <div class="muted">${[r.expediente, r.numero, r.nivel, r.driveUrl].filter(Boolean).join(' • ')}</div>
-      <div class="actions" style="margin-top:6px">
-        <button class="btn-plain"
-          onclick="prefillRes('${r._id}',
-                              '${String(r.titulo).replace(/'/g,"&#39;")}',
-                              '${String(r.driveUrl).replace(/'/g,"&#39;")}',
-                              '${r.expediente?String(r.expediente).replace(/'/g,"&#39;"):""}',
-                              '${r.numero?String(r.numero).replace(/'/g,"&#39;"):""}',
-                              '${r.nivel??""}')">Editar</button>
-        <button class="btn-plain" onclick="verVinculos('${r._id}')">Vínculos</button>
-        <button style="background:#e53e3e" onclick="borrarRes('${r._id}')">Borrar</button>
+  $("btnListRes")?.addEventListener("click", async () => {
+    const q = prompt("Buscar (opcional: título):", "") || "";
+    const list = await httpJson(api(`/api/admin/resoluciones?q=${encodeURIComponent(q)}`), { headers:{ Authorization:`Bearer ${TOKEN}` }});
+    const c = $("adminLista"); if (!c) return;
+    c.innerHTML = `<h4>Resoluciones (${list.length})</h4>` + list.map(r => `
+      <div class="list-item">
+        <div><b>${r.titulo}</b></div>
+        <div class="muted">${[r.expediente, r.numero, r.nivel, r.driveUrl].filter(Boolean).join(' • ')}</div>
+        <div class="actions" style="margin-top:6px">
+          <button class="btn-plain"
+            onclick="prefillRes('${r._id}',
+                                '${String(r.titulo).replace(/'/g,"&#39;")}',
+                                '${String(r.driveUrl).replace(/'/g,"&#39;")}',
+                                '${r.expediente?String(r.expediente).replace(/'/g,"&#39;"):""}',
+                                '${r.numero?String(r.numero).replace(/'/g,"&#39;"):""}',
+                                '${r.nivel??""}')">Editar</button>
+          <button class="btn-plain" onclick="verVinculos('${r._id}')">Vínculos</button>
+          <button style="background:#e53e3e" onclick="borrarRes('${r._id}')">Borrar</button>
+        </div>
       </div>
-    </div>
-  `).join("");
-});
+    `).join("");
+  });
 
-// cuando cargás para editar, marcamos selección y cambiamos texto del botón a “Actualizar”
-window.prefillRes = (id,titulo,driveUrl,expediente,numero,nivel)=>{
-  const t=$("titulo"), d=$("driveUrl"), e=$("expediente"), n=$("nivel"), b=$("resBuscar"), num=$("numero");
-  if(t)t.value=titulo; if(d)d.value=driveUrl; if(e)e.value=expediente||""; if(num)num.value=numero||""; if(n)n.value=nivel||"";
-  if(b)b.value=titulo;
+  window.prefillRes = (id,titulo,driveUrl,expediente,numero,nivel)=>{
+    const t=$("titulo"), d=$("driveUrl"), e=$("expediente"), n=$("nivel"), b=$("resBuscar"), num=$("numero");
+    if(t)t.value=titulo; if(d)d.value=driveUrl; if(e)e.value=expediente||""; if(num)num.value=numero||""; if(n)n.value=nivel||"";
+    if(b)b.value=titulo;
 
-  const resSel = $("resSel");
-  if (resSel) {
-    resSel.textContent = titulo;
-    resSel.style.display = "";
-    resSel.dataset.id = id;
-    const x = document.createElement("button"); x.textContent = "✕";
-    x.onclick = ()=>{ resSel.style.display="none"; resSel.dataset.id=""; if(b) b.value=""; const btn=$("btnCrearRes"); if(btn) btn.textContent="Crear"; };
-    resSel.appendChild(x);
-  }
-  const btn = $("btnCrearRes"); if (btn) btn.textContent = "Actualizar";
-  toast("Formulario cargado para editar/vincular");
-};
+    const resSel = $("resSel");
+    if (resSel) {
+      resSel.textContent = titulo;
+      resSel.style.display = "";
+      resSel.dataset.id = id;
+      const x = document.createElement("button"); x.textContent = "✕";
+      x.onclick = ()=>{ resSel.style.display="none"; resSel.dataset.id=""; if(b) b.value=""; const btn=$("btnCrearRes"); if(btn) btn.textContent="Crear"; };
+      resSel.appendChild(x);
+    }
+    const btn = $("btnCrearRes"); if (btn) btn.textContent = "Actualizar";
+    toast("Formulario cargado para editar/vincular");
+  };
 
-window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus vínculos?"))return;
-  const data = await httpJson(api(`/api/admin/resoluciones/${id}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
-  if (data.ok) { toast("Resolución borrada ✅"); $("btnListRes").click(); } else toast(data.error||"Error","err");
-};
-
+  window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus vínculos?"))return;
+    const data = await httpJson(api(`/api/admin/resoluciones/${id}`), { method:"DELETE", headers:{ Authorization:`Bearer ${TOKEN}` }});
+    if (data.ok) { toast("Resolución borrada ✅"); $("btnListRes").click(); } else toast(data.error||"Error","err");
+  };
 
   // ===============================
   // Autocompletar: Resolución
@@ -468,7 +536,7 @@ window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus víncul
   });
 
   // ===============================
-  // Autocompletar: Docentes
+  // Autocompletar: Docentes (chips manuales)
   // ===============================
   const docSug = $("docSug"), docBuscar = $("docBuscar"), docSel = $("docSel");
   let DOC_TIMER=null;
@@ -517,17 +585,10 @@ window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus víncul
   docBuscar?.addEventListener("keydown", (e)=>{
     if (!["ArrowDown","ArrowUp","Enter","Escape"].includes(e.key)) return;
     const max = DOC_VIEW.length;
-    if (e.key === "ArrowDown") {
-      e.preventDefault(); if (!max) return;
-      docActive = (docActive + 1) % max; docSetActive(docActive);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault(); if (!max) return;
-      docActive = (docActive - 1 + max) % max; docSetActive(docActive);
-    } else if (e.key === "Enter") {
-      e.preventDefault(); if (docActive >= 0) docAddByIndex(docActive);
-    } else if (e.key === "Escape") {
-      toggle(docSug, false);
-    }
+    if (e.key === "ArrowDown") { e.preventDefault(); if (!max) return; docActive = (docActive + 1) % max; docSetActive(docActive); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); if (!max) return; docActive = (docActive - 1 + max) % max; docSetActive(docActive); }
+    else if (e.key === "Enter") { e.preventDefault(); if (docActive >= 0) docAddByIndex(docActive); }
+    else if (e.key === "Escape") { toggle(docSug, false); }
   });
 
   docSug?.addEventListener("click", (e)=>{
@@ -536,7 +597,7 @@ window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus víncul
     docAddByIndex(idx);
   });
 
-  // ------- Vincular -------
+  // ------- Vincular (chips) -------
   $("btnVincular")?.addEventListener("click", async ()=>{
     const resolucionId = $("resSel")?.dataset.id || "";
     const dnis = Array.from($("docSel")?.querySelectorAll(".chip") || []).map(x=>x.dataset.dni);
@@ -546,6 +607,21 @@ window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus víncul
     if (data.ok) toast(`Vinculados: ${data.vinculados} • Ignorados: ${data.ignorados?.length||0}`); else toast(data.error||"Error","err");
   });
 
+  // ------- Vincular (lista de DNIs) -------
+  $("btnDniPreview")?.addEventListener("click", async ()=>{
+    if (!TOKEN) return toast("Debés iniciar sesión", "err");
+    VINC_DNI_ROWS = parseDniList();
+    VINC_DNI_ROWS = await enrichDniRows(VINC_DNI_ROWS);
+    renderVincDniPreview();
+    const ok = VINC_DNI_ROWS.filter(r=>r.ok).length;
+    if (!VINC_DNI_ROWS.length) toast("No se detectaron DNIs", "err");
+    else if (ok) toast(`Detectados ${VINC_DNI_ROWS.length}. Válidos: ${ok}`, "ok");
+    else toast(`DNIs inválidos o no encontrados`, "err");
+  });
+
+  $("btnDniVincular")?.addEventListener("click", doVincularDniList);
+
+  // ------- Ver vínculos -------
   $("btnVerVinculos")?.addEventListener("click", async ()=>{
     const id = $("resSel")?.dataset.id || "";
     if (!id) return toast("Primero elegí una resolución", "err");
@@ -560,7 +636,7 @@ window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus víncul
       </div>
     `).join("");
   });
-  window.verVinculos = (id)=>{ if ($("resBuscar")) $("resBuscar").value = $("resBuscar").value || "Resolución"; setResSeleccion(id, $("resBuscar")?.value || "Resolución"); $("btnVerVinculos")?.click(); };
+  window.verVinculos = (id)=>{ if ($("resBuscar")) $("resBuscar").value = $("resBuscar").value || "Resolución"; setResSeleccion(id, $("resBuscar")?.value || "Resolución"); $("btnVerVinculos").click(); };
   window.desvincular = async (resolucionId, docenteDni) => {
     const data = await httpJson(api(`/api/admin/vinculos`), { method:"DELETE", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${TOKEN}` }, body: JSON.stringify({ resolucionId, docenteDni }) });
     if (data.ok) { toast("Vínculo eliminado"); $("btnVerVinculos").click(); } else toast(data.error||"Error","err");
@@ -575,23 +651,7 @@ window.borrarRes = async (id)=>{ if(!confirm("¿Borrar resolución y sus víncul
     ).join("");
   });
 
-  // ------- Carga masiva: eventos -------
-  $("btnMassPreview")?.addEventListener("click", () => {
-    BULK_ROWS = parseBulkInputs();
-    renderBulkTable();
-    const valid = BULK_ROWS.filter(r => r.ok).length;
-    const invalid = BULK_ROWS.length - valid;
-    if (!BULK_ROWS.length) toast("No se detectaron filas", "err");
-    else if (invalid) toast(`Detectadas ${BULK_ROWS.length}. Válidas: ${valid} • Inválidas: ${invalid}`, "err");
-    else toast(`Detectadas ${BULK_ROWS.length} filas válidas ✅`);
-  });
-
-  $("btnMassSave")?.addEventListener("click", async () => {
-    if (!TOKEN) return toast("Debés iniciar sesión para guardar", "err");
-    await bulkGuardar();
-  });
-
-  // Estado inicial si ya hay token
+  // Estado inicial
   const t = localStorage.getItem("TOKEN");
   if (t) { TOKEN = t; setAuthUI("administrador"); }
 });
